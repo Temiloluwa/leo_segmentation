@@ -1,0 +1,32 @@
+{
+    "train":true,
+    "datasets":{
+        "pascal_voc":{"train_data_path":"", 
+                      "val_data_path":"",
+                      "test_data_path":""
+                    },
+        "fss1000": {"train_data_path":"", 
+                    "val_data_path":"",
+                    "test_data_path":""
+                    }
+    },
+    "outerloop":{
+        "num_classes":3,
+        "num_tr_examples_per_class":1,
+        "num_val_examples_per_class":15,
+        "num_metatrain_tasks":12,
+        "num_metaval_tasks":12,
+        "num_metatest_tasks":12
+    },
+    "innerloop":{
+        "num_finetuning_steps":2,
+        "num_adaptation_steps":5
+    },
+    "hyperparameters":{
+        "outer_loop_lr":1e-3,
+        "inner_loop_lr":1e-3,
+        "finetuning_lr":1e-3,
+        "dropout_rate":0.2,
+        "num_latents":5
+    }
+}
