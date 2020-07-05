@@ -5,6 +5,6 @@ The project is undertaken by Gopika Sudhakaran, Temiloluwa Adeoti, Jennifer Debo
 
 # Run Code base
 - Create a python virtual environment and install Pytorch 1.5.1 following guidelines at https://pytorch.org/
-- Install dependencies using pip install -e .
+- Install dependencies using `pip install -e .`
 - To Run the code from a jupyter notebook 
     - Install your virutal environment as an using `ipython kernel install --user --name=<kernel_name>`
