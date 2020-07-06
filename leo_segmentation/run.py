@@ -1,7 +1,7 @@
 # Entry point for the project
-from .utils import load_config
-from .data import Datagenerator
-from .model import Leo
+from utils import load_config
+from data import Datagenerator
+from model import Leo
 
 import argparse
 import torch
@@ -14,7 +14,11 @@ dataset = args.dataset[0]
 
 def train_model(config):
     metatrain_dataloader = Datagenerator(dataset, config, data_type="train")
-    batch_data = metatrain_dataloader.get_batch_data()
+    #example
+    epochs = config["hyperparameters"]["epochs"]
+    for i in range(epochs):
+        batch_data = metatrain_dataloader.get_batch_data()
+        print(f"i{i} datashape {batch_data.shape}")
     #model = Leo()
     
 
