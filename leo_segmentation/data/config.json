@@ -1,15 +1,7 @@
 {
     "train":true,
-    "datasets":{
-        "pascal_voc":{"train_data_path":"", 
-                      "val_data_path":"",
-                      "test_data_path":""
-                    },
-        "fss1000": {"train_data_path":"", 
-                    "val_data_path":"",
-                    "test_data_path":""
-                    }
-    },
+    "datasets_path":"data",
+    "datasets":["pascal_voc", "sample_data", "fss1000"],
     "outerloop":{
         "num_classes":3,
         "num_tr_examples_per_class":1,

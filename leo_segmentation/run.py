@@ -1,5 +1,8 @@
 # Entry point for the project
 from utils import load_config
+from data import DataLoader
+from model import Leo
+
 import argparse
 import torch
 
@@ -10,8 +13,11 @@ dataset = args.dataset[0]
 
 
 def train_model(config):
-    print("dataset", dataset)
-    pass
+    meta_train_dataloader = DataLoader(dataset, config, data_type="train")
+    meta_val_dataloader = DataLoader(dataset, config, data_type="val")
+    meta_test_dataloader = DataLoader(dataset, config, data_type="train")
+    model = Leo()
+    
 
 def predict_model(config):
     pass
