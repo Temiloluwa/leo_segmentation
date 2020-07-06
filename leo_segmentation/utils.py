@@ -15,8 +15,8 @@ def load_data(config, dataset, data_type):
         data_dict = load_pickled_data(data_path)
     else:
         raise ValueError("Dataset does not exist")
-    assert(list(data_dict.keys() == ['embeddings', 'filenames', 'masks']))
-    assert(len(data_dict["embeddings"] == len(data_dict["filenames"]) == len(data_dict["masks"])))
+    assert(list(data_dict.keys()) == ['embeddings', 'filenames', 'masks'])
+    assert(len(data_dict["embeddings"]) == len(data_dict["filenames"]) == len(data_dict["masks"]))
     return data_dict
 
 def load_pickled_data(data_path):
