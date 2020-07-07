@@ -112,8 +112,8 @@ class Datagenerator():
             batch_masks[i] = mask_array
         
         tr_data = batch_embeddings[:,:,:tr_size,:,:]
-        tr_data_masks = batch_masks[:,:,tr_size:,:,:]
-        val_data = batch_embeddings[:,:,:tr_size,:,:]
+        tr_data_masks = batch_masks[:,:,:tr_size,:,:]
+        val_data = batch_embeddings[:,:,tr_size:,:,:]
         val_masks = batch_masks[:,:,tr_size:,:,:]
         return numpy_to_tensor(tr_data), numpy_to_tensor(tr_data_masks),\
                numpy_to_tensor(val_data), numpy_to_tensor(val_masks)

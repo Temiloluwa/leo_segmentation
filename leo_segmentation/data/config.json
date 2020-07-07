@@ -7,9 +7,9 @@
     "data_type":{
         "train":{
             "num_classes":8,
-            "n_train_per_class":3,
+            "n_train_per_class":2,
             "n_val_per_class":5,
-            "num_tasks":12
+            "num_tasks":10
         },
         "val":{
             "num_classes":3,
