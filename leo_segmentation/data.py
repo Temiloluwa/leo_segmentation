@@ -1,5 +1,5 @@
 #contains data preprocessing functions
-from utils import load_data
+from utils import load_data, numpy_to_tensor
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, utils
 import collections, random
@@ -18,7 +18,21 @@ class MetaDataset(Dataset):
        return self._dataset
 
     def _index_data(self, dataset):
-        # TO-DO return masks
+        """
+        Converts the dataset dictionary to a mappping between
+        classes in the data and the list of filenames and 
+        a mapping between filenames and both their embeddings and masks
+
+        Args: 
+            dataset(str): name of dataset
+
+        Returns:
+            - image_class_mapping, image_mask_embeddings(tuple)
+            - image_class_mapping(dictionary): keys are class, values are list of filenames in class
+            - image_mask_embeddings(tuple): keys are filenames, values are a tuple of embeddings
+                                     and masks for that image 
+
+        """
         data_dict = load_data(self._config, dataset, self._data_type)
         image_class_mapping = collections.OrderedDict()
         all_classes = []
@@ -40,9 +54,7 @@ class MetaDataset(Dataset):
         return image_class_mapping, image_mask_embeddings
 
 class Datagenerator():
-    #TO-DO Include Masks
-    #Split between train and val data
-    #Increase the size of sample data
+    """Data Generator class"""
     def __init__(self, dataset, config, data_type):
         self.config = config["data_type"][data_type]
         self.dataset = MetaDataset(dataset, config, data_type)
@@ -53,6 +65,19 @@ class Datagenerator():
         return next(iter(self._data_loader))
 
     def collation_fn(self, data):
+        """
+        Collation function for data loader to generate train and val batch data
+        Args: 
+            data (tuple): contains _all_class_images dict and _image_mask_embeddings
+        
+        Returns:
+            A tuple of pytorch tensors:
+            DIMS = Image or Mask shape
+            - tr_data: (batch_size, num_classes, tr_size, DIMS): training image embeddings
+            - tr_masks: (batch_size, num_classes, tr_size, DIMS): training image masks
+            - val_data: (batch_size, num_classes, val_size, DIMS): validation image embeddings
+            - val_masks: (batch_size, num_classes, val_size, DIMS): validation image masks 
+        """
         _all_class_images, _image_mask_embeddings = data
         for i in range(self.config["num_tasks"]):
             class_list = list(_all_class_images.keys())
@@ -86,7 +111,12 @@ class Datagenerator():
             batch_embeddings[i] = embedding_array
             batch_masks[i] = mask_array
         
-        return batch_embeddings, batch_masks
+        tr_data = batch_embeddings[:,:,:tr_size,:,:]
+        tr_data_masks = batch_masks[:,:,tr_size:,:,:]
+        val_data = batch_embeddings[:,:,:tr_size,:,:]
+        val_masks = batch_masks[:,:,tr_size:,:,:]
+        return numpy_to_tensor(tr_data), numpy_to_tensor(tr_data_masks),\
+               numpy_to_tensor(val_data), numpy_to_tensor(val_masks)
 
 
 

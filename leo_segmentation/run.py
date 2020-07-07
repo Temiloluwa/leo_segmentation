@@ -14,11 +14,11 @@ dataset = args.dataset[0]
 
 def train_model(config):
     metatrain_dataloader = Datagenerator(dataset, config, data_type="train")
-    #example
     epochs = config["hyperparameters"]["epochs"]
     for i in range(epochs):
-        batch_embeddings, batch_masks = metatrain_dataloader.get_batch_data()
-        print(f"i{i} batch_embeddings {batch_embeddings.shape} masks{batch_masks.shape}")
+        tr_data, tr_data_masks, val_data, val_masks = metatrain_dataloader.get_batch_data()
+        print("tr_data shape: {},tr_data_masks shape: {}, val_data shape: {},val_masks shape: {}".\
+            format(tr_data.size(), tr_data_masks.size(), val_data.size(), val_masks.size()))
     #model = Leo()
     
 
