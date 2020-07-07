@@ -74,7 +74,6 @@ class Datagenerator():
                 #mask_array = np.array(class_ids, dtype=np.int32)
                 path_array = np.array(image_paths)
             
-            
             embedding_array = np.array([[_image_embedding[image_path]
                                     for image_path in class_paths]
                                     for class_paths in path_array])

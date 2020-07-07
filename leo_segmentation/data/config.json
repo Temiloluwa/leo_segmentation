@@ -5,9 +5,9 @@
     "datasets":["pascal_voc", "sample_data", "fss1000"],
     "data_type":{
         "train":{
-            "num_classes":3,
+            "num_classes":7,
             "n_train_per_class":1,
-            "n_val_per_class":0,
+            "n_val_per_class":5,
             "num_tasks":12
         },
         "val":{
