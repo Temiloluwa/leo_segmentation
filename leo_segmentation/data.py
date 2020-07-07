@@ -22,10 +22,10 @@ class MetaDataset(Dataset):
         data_dict = load_data(self._config, dataset, self._data_type)
         image_class_mapping = collections.OrderedDict()
         all_classes = []
-        image_embeddings = {}
+        image_mask_embeddings = {}
         for i, fn in enumerate(data_dict["filenames"]):
             class_name, _ = fn.split("_")
-            image_embeddings[fn] = data_dict["embeddings"][i]
+            image_mask_embeddings[fn] = (data_dict["embeddings"][i] , data_dict["masks"][i])
             if class_name in list(image_class_mapping.keys()):
                 image_class_mapping[class_name].append(fn)
                 all_classes.append(class_name)
@@ -34,8 +34,10 @@ class MetaDataset(Dataset):
                 all_classes.append(class_name)
 
         total_files = sum([len(image_class_mapping[i]) for i in image_class_mapping])
-        assert(len(data_dict["embeddings"]) == total_files == len(image_embeddings))
-        return image_class_mapping, image_embeddings
+        error_msg = "Not all classes represented in the mapping"
+        assert set(image_class_mapping.keys()) - set(all_classes) == set(), error_msg
+        assert(len(data_dict["embeddings"]) == total_files == len(image_mask_embeddings))
+        return image_class_mapping, image_mask_embeddings
 
 class Datagenerator():
     #TO-DO Include Masks
@@ -51,7 +53,7 @@ class Datagenerator():
         return next(iter(self._data_loader))
 
     def collation_fn(self, data):
-        _all_class_images, _image_embedding = data
+        _all_class_images, _image_mask_embeddings = data
         for i in range(self.config["num_tasks"]):
             class_list = list(_all_class_images.keys())
             tr_size = self.config["n_train_per_class"]
@@ -63,25 +65,28 @@ class Datagenerator():
             error_message = f"len(shuffled_list) {len(shuffled_list)} is not num_classes: {num_classes}"
             assert len(shuffled_list) == num_classes, error_message
             image_paths = []
-            class_ids = []
-            for class_id, class_name in enumerate(shuffled_list):
+            for _, class_name in enumerate(shuffled_list):
                 all_images = _all_class_images[class_name]
                 all_images = np.random.choice(all_images, sample_count, replace=False)
                 error_message = f"{len(all_images)} == {sample_count} failed"
                 assert len(all_images) == sample_count, error_message
                 image_paths.append(all_images)
-                class_ids.append([[class_id]]*sample_count)
-                #mask_array = np.array(class_ids, dtype=np.int32)
-                path_array = np.array(image_paths)
             
-            embedding_array = np.array([[_image_embedding[image_path]
-                                    for image_path in class_paths]
-                                    for class_paths in path_array])
+            path_array = np.array(image_paths)
+            embedding_array = np.array([[_image_mask_embeddings[image_path][0] 
+                                        for image_path in class_paths]
+                                        for class_paths in path_array])
+
+            mask_array = np.array([[_image_mask_embeddings[image_path][1] 
+                                        for image_path in class_paths]
+                                        for class_paths in path_array])
             if i == 0:
                 batch_embeddings = np.empty((self.config["num_tasks"],) + embedding_array.shape)
+                batch_masks = np.empty((self.config["num_tasks"],) + mask_array.shape)
             batch_embeddings[i] = embedding_array
+            batch_masks[i] = mask_array
         
-        return batch_embeddings
+        return batch_embeddings, batch_masks
 
 
 

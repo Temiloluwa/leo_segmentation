@@ -17,8 +17,8 @@ def train_model(config):
     #example
     epochs = config["hyperparameters"]["epochs"]
     for i in range(epochs):
-        batch_data = metatrain_dataloader.get_batch_data()
-        print(f"i{i} datashape {batch_data.shape}")
+        batch_embeddings, batch_masks = metatrain_dataloader.get_batch_data()
+        print(f"i{i} batch_embeddings {batch_embeddings.shape} masks{batch_masks.shape}")
     #model = Leo()
     
 
