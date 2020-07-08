@@ -11,7 +11,6 @@ parser.add_argument("-d", "--dataset", type=str, nargs=1, default="pascal_voc")
 args = parser.parse_args()
 dataset = args.dataset[0]
 
-
 def train_model(config):
     metatrain_dataloader = Datagenerator(dataset, config, data_type="train")
     epochs = config["hyperparameters"]["epochs"]
