@@ -3,11 +3,12 @@ import torch
 import json
 import pickle
 import os
+from easydict import EasyDict as edict
 
 def load_config(config_path:str="data/config.json"):
     with open(config_path, "r") as f:
         config = json.loads(f.read())
-    return config
+    return edict(config)
 
 def load_data(config:dict, dataset:str, data_type:str):
     """
@@ -23,11 +24,11 @@ def load_data(config:dict, dataset:str, data_type:str):
         - filenames -  filenames of the format <classname>_<imagename>.jpg
         - masks - segmentation masks for image
     """
-    root_data_path = config["datasets_path"]
-    if data_type not in ["train", "val", "test"]:
+    root_data_path = config.datasets_path
+    if data_type not in ["meta_train", "meta_val", "meta_test"]:
         raise ValueError("Make sure dataset files end with train, val or test")
 
-    if dataset in config["datasets"]:
+    if dataset in config.datasets:
         data_path = os.path.join(root_data_path, dataset, f"{dataset}_{data_type}.pkl")
         data_dict = load_pickled_data(data_path)
     else:
@@ -45,8 +46,8 @@ def load_pickled_data(data_path):
 def numpy_to_tensor(np_data):
     """Converts numpy array to pytorch tensor"""
     config = load_config()
-    np_data = np_data.astype(config["dtype"])
-    device = torch.device("cuda:0" if torch.cuda.is_available() and config["use_gpu"] else "cpu")
+    np_data = np_data.astype(config.dtype)
+    device = torch.device("cuda:0" if torch.cuda.is_available() and config.use_gpu else "cpu")
     return torch.from_numpy(np_data).to(device)
     
 def tensor_to_numpy(pytensor):

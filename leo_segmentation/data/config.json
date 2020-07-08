@@ -4,32 +4,12 @@
     "dtype":"float32",
     "datasets_path":"data",
     "datasets":["pascal_voc", "sample_data", "fss1000"],
-    "meta_train_config":{
-        "train":{
-            "num_classes":8,
-            "n_train_per_class":3,
-            "n_val_per_class":5,
-            "num_tasks":12
-        },
-        "val":{
-            "num_classes":3,
-            "n_train_per_class":1,
-            "n_val_per_class":15,
-            "num_tasks":12
-        }
+    "data_params":{
+        "num_classes":3,
+        "n_train_per_class":{"meta_train":1, "meta_val":1, "meta_test":1},
+        "n_val_per_class":{"meta_train":5, "meta_val":5, "meta_test":5},
+        "num_tasks":{"meta_train":12, "meta_val":12, "meta_test":12}
     },
-	"meta_test_config":{
-            "num_classes":3,
-            "n_train_per_class":1,
-            "n_val_per_class":15,
-            "num_tasks":12
-        },	
-	"meta_val_config":{
-            "num_classes":3,
-            "n_train_per_class":1,
-            "n_val_per_class":15,
-            "num_tasks":12
-        },
     "hyperparameters":{
         "outer_loop_lr":1e-3,
         "inner_loop_lr":1e-3,
@@ -38,6 +18,6 @@
         "num_latents":5,
         "num_finetuning_steps":2,
         "num_adaptation_steps":5,
-        "epochs":5
+        "episodes":5
     }
 }

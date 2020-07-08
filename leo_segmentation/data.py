@@ -56,7 +56,8 @@ class MetaDataset(Dataset):
 class Datagenerator():
     """Data Generator class"""
     def __init__(self, dataset, config, data_type):
-        self.config = config["data_type"][data_type]
+        self.data_type = data_type
+        self.config = config.data_params
         self.dataset = MetaDataset(dataset, config, data_type)
         self._data_loader = DataLoader(self.dataset, batch_size=None, shuffle=False,\
                             num_workers=0, collate_fn=self.collation_fn)
@@ -78,12 +79,13 @@ class Datagenerator():
             - val_data: (batch_size, num_classes, val_size, DIMS): validation image embeddings
             - val_masks: (batch_size, num_classes, val_size, DIMS): validation image masks 
         """
+        num_tasks = self.config.num_tasks[self.data_type]
         _all_class_images, _image_mask_embeddings = data
-        for i in range(self.config["num_tasks"]):
+        for i in range(num_tasks):
             class_list = list(_all_class_images.keys())
-            tr_size = self.config["n_train_per_class"]
-            val_size = self.config["n_val_per_class"]
-            num_classes = self.config["num_classes"]
+            tr_size = self.config.n_train_per_class[self.data_type]
+            val_size = self.config.n_val_per_class[self.data_type]
+            num_classes = self.config.num_classes
             sample_count = (tr_size + val_size)
             random.shuffle(class_list)
             shuffled_list = class_list[:num_classes]
@@ -106,8 +108,8 @@ class Datagenerator():
                                         for image_path in class_paths]
                                         for class_paths in path_array])
             if i == 0:
-                batch_embeddings = np.empty((self.config["num_tasks"],) + embedding_array.shape)
-                batch_masks = np.empty((self.config["num_tasks"],) + mask_array.shape)
+                batch_embeddings = np.empty((num_tasks,) + embedding_array.shape)
+                batch_masks = np.empty((num_tasks,) + mask_array.shape)
             batch_embeddings[i] = embedding_array
             batch_masks[i] = mask_array
         
