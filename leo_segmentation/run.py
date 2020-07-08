@@ -1,8 +1,10 @@
 # Entry point for the project
 from utils import load_config
 from data import Datagenerator
-from model import Leo
-
+from model import LEO
+from PIL import Image
+from torchvision import transforms
+from torch.autograd import variable
 import argparse
 import torch
 
@@ -18,9 +20,14 @@ def train_model(config):
     epochs = config["hyperparameters"]["epochs"]
     for i in range(epochs):
         tr_data, tr_data_masks, val_data, val_masks = metatrain_dataloader.get_batch_data()
+        tr_data_ = variable(tr_data, requires_grad=True)
         print("tr_data shape: {},tr_data_masks shape: {}, val_data shape: {},val_masks shape: {}". \
               format(tr_data.size(), tr_data_masks.size(), val_data.size(), val_masks.size()))
-        model = Leo(config)
+        model = LEO(config)
+        for i, data in enumerate(tr_data_):
+            latents = model.forward_encoder(data)
+            tr_loss, adapted_classifier_weights = model.leo_inner_loop(data, latents)
+            val_loss, val_accuracy = model.finetuning_inner_loop(data, tr_loss, adapted_classifier_weights)
 
 
 def predict_model(config):
