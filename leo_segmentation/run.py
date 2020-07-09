@@ -14,6 +14,8 @@ dataset = args.dataset[0]
 def train_model(config):
     metatrain_dataloader = Datagenerator(dataset, config, data_type="meta_train")
     episodes = config.hyperparameters.episodes
+    train_stats_store = TrainingStats() # to store training statistics
+
     for i in range(episodes):
         tr_data, tr_data_masks, val_data, val_masks = metatrain_dataloader.get_batch_data()
         print("tr_data shape: {},tr_data_masks shape: {}, val_data shape: {},val_masks shape: {}".\
@@ -23,7 +25,7 @@ def train_model(config):
         if blabblasa:
             model = LEO()  if blabllalb else load_model(model_path)
         
-        train_stats_store = TrainingStats()
+        
         epoch, loss, accuracy = optimize_model(model, train_stats_store)
         train_stats_store.update_stats(epoch, loss, accuracy)
     
