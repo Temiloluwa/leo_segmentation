@@ -57,6 +57,23 @@ def tensor_to_numpy(pytensor):
     else:
         return pytensor.numpy()
 
+def optimize_model(model, train_stats_store):
+    """
+    Returns a trained model
+
+    Parameters:
+    model (str): path containing stored model
+
+    Returns:
+    model(pkl): trained model
+    
+
+    """
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+    return epoch, loss, accuracy
+
 def load_model(model_path):
     """
     Returns a trained model
@@ -70,3 +87,18 @@ def load_model(model_path):
     """
     print("This return a trained model")
     return 
+
+
+def save_model(model, model_path):
+    """
+    Returns a trained model
+
+    Parameters:
+    model_path (str): path containing stored model
+
+    Returns:
+    model(pkl): trained model
+
+    """
+    print("This return a trained model")
+    return

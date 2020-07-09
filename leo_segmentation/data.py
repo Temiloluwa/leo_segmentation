@@ -121,6 +121,25 @@ class Datagenerator():
                numpy_to_tensor(val_data), numpy_to_tensor(val_masks)
 
 
+class TrainingStats():
+    def __init__(self):
+        self._stats = []
+    
+    
+    def update_stats(self, epoch, loss, accuracy):
+        self._stats.append({
+            "epoch":epoch,
+            "loss":loss,
+            "accuary":accuracy
+        })
+
+    def reset_stats(self):
+        self._stats = []
+
+    def get_stats(self):
+        return pd.DataFrame(self._stats)
+
+
 
     
     
