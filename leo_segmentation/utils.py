@@ -1,9 +1,14 @@
 # Contains helper functions
 import torch
+import torch.nn.functional as F
+import torch.optim as optim
+from model import LEO
 import json
 import pickle
 import os
+
 from easydict import EasyDict as edict
+
 
 def load_config(config_path:str="data/config.json"):
     with open(config_path, "r") as f:
@@ -57,27 +62,41 @@ def tensor_to_numpy(pytensor):
     else:
         return pytensor.numpy()
 
-def optimize_model(model,model_output,target):
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.1, momentum=0.9)
+def optimize_model(model,data,target,optimizer):
+    
+    """
+    Optimizes the model
+    Args:
+        data - training data        
+        target - target data 
+    
+    Returns:
+        loss :train loss
+        optimizer:weights after optimizing
+    """
     optimizer.zero_grad()
-    loss_fn(model_output, target).backward()
+    output = model(data)
+    loss = F.nll_loss(output, target)
+    loss.backward()
     optimizer.step()
 
-    # Print model's state_dict
-    print("Model's state_dict:")
-    for param_tensor in model.state_dict():
-        print(param_tensor, "\t", model.state_dict()[param_tensor].size())
+    return loss,optimizer
 
-    # Print optimizer's state_dict
-    print("Optimizer's state_dict:")
-    for var_name in optimizer.state_dict():
-        print(var_name, "\t", optimizer.state_dict()[var_name])
-    return epoch, loss, accuracy
+def load_model(model,optimizer,model_path):
 
-def load_model(model_path):
-   
-    model = LEO(*args, **kwargs)
+    """
+    Loads the model
+    Args:
+        model - initialized from the LEO class        
+        optimizer - SGD optimizer
+        model_path:location where the model is saved
     
+    Returns:
+        model :loaded model that was saved
+        optimizer:loaded weights of optimizer
+        epoch:the last epoch where the training stopped
+    """
+   
     checkpoint = torch.load(model_path)
     model.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -85,15 +104,27 @@ def load_model(model_path):
     loss = checkpoint['loss']
     
     
-    return model,optimizer
+    return model,optimizer,epoch
 
 
-def save_model(model,optimizer,model_path):
+def save_model(model,optimizer,model_path,epoch,loss):
+    """
+    Save the model while training
+    Args:
+        model - trained model       
+        optimizer - optimized weights
+        model_path-location where the model is saved
+        epoch- last epoch it got trained
+        loss- training loss
     
-   torch.save({
+    Returns:
+        loss :train loss
+        optimizer:weights after optimizing
+    """
+    torch.save({
             'epoch': epoch,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'loss': loss,
             }, model_path)
-    return
+    
