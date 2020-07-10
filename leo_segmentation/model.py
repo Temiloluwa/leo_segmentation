@@ -24,6 +24,4 @@ class LEO(nn.Module):
     )
     return layers
 
-    model =LEO()
-
-    optimizer=optimize_model(model, train_stats_store) #function in utils
+   

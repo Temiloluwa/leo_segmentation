@@ -57,11 +57,10 @@ def tensor_to_numpy(pytensor):
     else:
         return pytensor.numpy()
 
-def optimize_model(model, train_stats_store):
-    
-
+def optimize_model(model,model_output,target):
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.1, momentum=0.9)
     optimizer.zero_grad()
-    loss.backward()
+    loss_fn(model_output, target).backward()
     optimizer.step()
 
     # Print model's state_dict
@@ -77,26 +76,24 @@ def optimize_model(model, train_stats_store):
 
 def load_model(model_path):
    
-    model = LEO()
-    model.load_state_dict(torch.load(PATH))
-    model.eval()
+    model = LEO(*args, **kwargs)
     
-    return model
-
-
-def save_model(model, model_path):
-    """
-    Returns a trained model
-
-    Parameters:
-    model_path (str): path containing stored model
-
-    Returns:
-    model(pkl): trained model
-
-    """
+    checkpoint = torch.load(model_path)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    epoch = checkpoint['epoch']
+    loss = checkpoint['loss']
     
-    torch.save(model.state_dict(), model_path) 
+    
+    return model,optimizer
 
-    print("This return a trained model")
+
+def save_model(model,optimizer,model_path):
+    
+   torch.save({
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'loss': loss,
+            }, model_path)
     return
