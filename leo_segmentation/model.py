@@ -23,3 +23,7 @@ class LEO(nn.Module):
         nn.Linear(32*7*7, 2*self.lantent_dim)#dim = 2*lantent_dim
     )
     return layers
+
+    model =LEO()
+
+    optimizer=optimize_model(model, train_stats_store) #function in utils
