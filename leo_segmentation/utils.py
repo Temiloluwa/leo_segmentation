@@ -82,7 +82,7 @@ def optimize_model(model,data,target,optimizer):
 
     return loss,optimizer
 
-def load_model(model,optimizer,model_path):
+def load_model(model,optimizer,config):
 
     """
     Loads the model
@@ -97,7 +97,7 @@ def load_model(model,optimizer,model_path):
         epoch:the last epoch where the training stopped
     """
    
-    checkpoint = torch.load(model_path)
+    checkpoint = torch.load(config.saved_model_path)
     model.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     epoch = checkpoint['epoch']
@@ -107,7 +107,7 @@ def load_model(model,optimizer,model_path):
     return model,optimizer,epoch
 
 
-def save_model(model,optimizer,model_path,epoch,loss):
+def save_model(model,optimizer,config,epoch,loss):
     """
     Save the model while training
     Args:
@@ -126,5 +126,6 @@ def save_model(model,optimizer,model_path,epoch,loss):
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'loss': loss,
-            }, model_path)
+            }, config.model_path)
+    
     

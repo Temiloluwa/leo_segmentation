@@ -1,6 +1,11 @@
 {
     "train":true,
     "use_gpu":false,
+    "episodes_completed":0,
+    "logging_interval":10,
+    "load_model_status":false,
+    "model_path":'model/model-{}.ckpt'.format(epoch),
+    "saved_model_path":'model/',
     "dtype":"float32",
     "datasets_path":"data",
     "datasets":["pascal_voc", "sample_data", "fss1000"],
