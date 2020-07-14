@@ -97,17 +97,22 @@ def check_experiment(config):
     """
     experiment = config.experiment
     model_root = os.path.join(config.data_path, "models")
+    model_dir  = os.path.join(model_root, "experiment_{}"\
+                 .format(experiment.number))
     if not os.path.exists(model_root):
         os.makedirs(model_root, exist_ok=True)
     existing_models = os.listdir(model_root)
     if f"experiment_{experiment.number}" in existing_models:
         return True
     else:
+        if not os.path.exists(model_dir):
+            os.makedirs(model_dir, exist_ok=True)
+        with open(os.path.join(model_dir, "model_log.txt"), "w") as f:
+            msg = f"*********************Experiment {experiment.number}********************\n"
+            msg += f"Description: {experiment.description}"
+            f.write(msg)
         return None
-
-   
-
-
+ 
 def load_model(config):
 
     """
@@ -175,17 +180,33 @@ def save_model(model, optimizer, config, stats):
     model_root = os.path.join(config.data_path, "models")
     model_dir  = os.path.join(model_root, "experiment_{}"\
                  .format(experiment.number))
-
-    if not os.path.exists(model_dir):
-        os.makedirs(model_dir, exist_ok=True)
-        with open(os.path.join(model_dir, "model_description.txt"), "w") as f:
-            f.write(experiment.description)
+    
     checkpoint_path = os.path.join(model_dir, f"checkpoint_{stats.episode}.pth.tar")
     if not os.path.exists(checkpoint_path):
         torch.save(data_to_save, checkpoint_path)
     else:
-        os.remove(checkpoint_path)
-        torch.save(data_to_save, checkpoint_path)
+        trials = 0
+        while trials < 3:
+            print(f"Are you sure you want to delete checkpoint: {stats.episode}")
+            print(f"Type Yes or y to confirm deletion else No or n")
+            user_input = input()
+            positive_options = ["Yes", "y", "yes"]
+            negative_options = ["No", "n", "no"]
+            if user_input in positive_options:
+                os.remove(checkpoint_path)
+                torch.save(data_to_save, checkpoint_path)
+                with open(os.path.join(model_dir, "model_log.txt"), "a") as f:
+                    msg = f"\n*********** checkpoint {stats.episode} was deleted **************" 
+                    f.write(msg)
+                break
+            elif user_input in negative_options:
+                raise ValueError("Supply the correct episode number to start experiment")
+            else:
+                trials += 1
+                print("Wrong Value Supplied")
+                print(f"You have {3-trials} left")
+                if trials == 3:
+                    raise ValueError("Supply the correct answer to the question")
 
     
     

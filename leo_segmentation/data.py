@@ -5,6 +5,7 @@ from torchvision import transforms, utils
 import collections, random
 import pandas as pd
 import numpy as np
+import os
 
 class MetaDataset(Dataset):
     def __init__(self, dataset, config, data_type):
@@ -123,15 +124,20 @@ class Datagenerator():
 
 
 class TrainingStats():
-    def __init__(self):
+    def __init__(self, config):
         self._stats = []
-    
+        self.config = config
+            
     def update_stats(self, episode, loss, int_ov_union):
         self._stats.append({
             "episode": episode,
             "loss": loss,
             "int_ov_union": int_ov_union
         })
+        self.episode = episode
+        self.loss = loss
+        self.int_ov_union = int_ov_union
+        self.log_to_file()
         
     def reset_stats(self):
         self._stats = []
@@ -141,6 +147,17 @@ class TrainingStats():
 
     def get_latest_stats(self):
         return self._stats[-1]
+    
+    def log_to_file(self):
+        model_root = os.path.join(self.config.data_path, "models")
+        model_dir  = os.path.join(model_root, "experiment_{}"\
+                    .format(self.config.experiment.number))
+
+        with open(os.path.join(model_dir, "model_log.txt"), "a") as f:
+            msg = f"\nepisode:{self.episode:03d}, loss:{self.loss:2f}, " 
+            msg += f"iou:{self.int_ov_union:2f}"
+            f.write(msg)
+   
 
 
 

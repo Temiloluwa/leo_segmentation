@@ -20,11 +20,11 @@ def train_model(config):
         episodes_completed = stats["episode"]
         leo.eval()
         leo = leo.to(device)
-        train_stats = TrainingStats()
+        train_stats = TrainingStats(config)
         train_stats.update_stats(**stats)
     else:
         leo = LEO().to(device)
-        train_stats = TrainingStats()
+        train_stats = TrainingStats(config)
         episodes_completed = 0
     
     metatrain_dataloader = Datagenerator(dataset, config, data_type="meta_train")
