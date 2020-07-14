@@ -1,4 +1,3 @@
-# Contains helper functions
 import torch
 import torch.optim as optim
 import json
@@ -9,6 +8,7 @@ from model import LEO
 
 
 def load_config(config_path:str="data/config.json"):
+    """Loads config file"""
     with open(config_path, "r") as f:
         config = json.loads(f.read())
     return edict(config)
@@ -60,17 +60,22 @@ def tensor_to_numpy(pytensor):
     else:
         return pytensor.detach().numpy()
 
-def optimize_model(model, episode, tr_data, tr_data_masks, val_masks, optimizer, criterion, train_stats):
-    
+def optimize_model(model, episode, tr_data, tr_data_masks, val_data, val_masks, optimizer, criterion, train_stats):
     """
     Optimizes the model
     Args:
-        data - training data        
-        target - target data 
+        model - leo        
+        episode(int) - episode number
+        tr_data(torch.tensor) - train data 
+        tr_data_masks(torch.tensor) - train mask data 
+        val_data(torch.tensor) - val data 
+        val_masks(torch.tensor) - val mask data
+        optimizer - optimizer
+        criterion - training criterion
+        train_stats (obj) - train stats object
     
     Returns:
-        loss :train loss
-        optimizer:weights after optimizing
+        train_stats (obj) - train stats object
     """
     prediction = model(tr_data[0])
     loss = criterion(prediction, tr_data[0])
@@ -83,17 +88,12 @@ def optimize_model(model, episode, tr_data, tr_data_masks, val_masks, optimizer,
 
 def check_experiment(config):
     """
-    Checks if the experiment is new 
-    If it is not, it loads a saved model
+    Checks if the experiment is new or not
+    Creates a log file for a new experiment
     Args:
-        model - config
-    
+        config(dict)
     Returns:
-        if experiment exists:
-            model :loaded model that was saved
-            optimizer:loaded weights of optimizer
-        else:
-            None
+        Bool 
     """
     experiment = config.experiment
     model_root = os.path.join(config.data_path, "models")
@@ -118,14 +118,18 @@ def load_model(config):
     """
     Loads the model
     Args:
-        model - initialized from the LEO class        
-        optimizer - SGD optimizer
-        model_path:location where the model is saved
-    
+        config - global config
+        **************************************************
+        Note: The episode key in the experiment dict
+        implies the checkpoint that should be loaded 
+        when the model resumes training. If episode is 
+        -1, then the latest model is loaded else it loads
+        the checkpoint at the supplied episode
+        *************************************************
     Returns:
-        model :loaded model that was saved
-        optimizer:loaded weights of optimizer
-        epoch:the last epoch where the training stopped
+        leo :loaded model that was saved
+        optimizer: loaded weights of optimizer
+        stats: stats for the last saved model
     """
     experiment = config.experiment
     model_dir  = os.path.join(config.data_path, "models", "experiment_{}"\
@@ -138,6 +142,10 @@ def load_model(config):
     episode = max_cp if experiment.episode == -1 else experiment.episode
     checkpoint_path = os.path.join(model_dir, f"checkpoint_{episode}.pth.tar")
     checkpoint = torch.load(checkpoint_path)
+
+    with open(os.path.join(model_dir, "model_log.txt"), "a") as f:
+        msg = f"\n*********** checkpoint {episode} was loaded **************" 
+        f.write(msg)
 
     leo = LEO()
     optimizer = torch.optim.Adam(leo.parameters(), lr=config.hyperparameters.outer_loop_lr)
@@ -156,17 +164,21 @@ def load_model(config):
 
 def save_model(model, optimizer, config, stats):
     """
-    Save the model while training
+    Save the model while training based on check point interval
+    
+    if episode number is not -1 then a prompt to delete checkpoints occur if 
+    checkpoints for that episode number exits.
+    This only occurs if the prompt_deletion flag in the experiment dictionary
+    is true else checkpoints that already exists are automatically deleted
+
     Args:
         model - trained model       
         optimizer - optimized weights
-        model_path-location where the model is saved
-        epoch- last epoch it got trained
-        loss- training loss
+        config - global config
+        stats - dictionary containing stats for the current episode
     
     Returns:
-        loss :train loss
-        optimizer:weights after optimizing
+
     """
     data_to_save = {
         'episode': stats.episode,
@@ -187,9 +199,12 @@ def save_model(model, optimizer, config, stats):
     else:
         trials = 0
         while trials < 3:
-            print(f"Are you sure you want to delete checkpoint: {stats.episode}")
-            print(f"Type Yes or y to confirm deletion else No or n")
-            user_input = input()
+            if experiment.prompt_deletion:
+                print(f"Are you sure you want to delete checkpoint: {stats.episode}")
+                print(f"Type Yes or y to confirm deletion else No or n")
+                user_input = input()
+            else:
+                user_input = "Yes"
             positive_options = ["Yes", "y", "yes"]
             negative_options = ["No", "n", "no"]
             if user_input in positive_options:

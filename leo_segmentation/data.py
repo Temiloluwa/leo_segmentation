@@ -124,6 +124,7 @@ class Datagenerator():
 
 
 class TrainingStats():
+    """Stores train statistics data"""
     def __init__(self, config):
         self._stats = []
         self.config = config

@@ -11,7 +11,7 @@
         "n_val_per_class":{"meta_train":5, "meta_val":5, "meta_test":5},
         "num_tasks":{"meta_train":12, "meta_val":12, "meta_test":12}
     },
-    "experiment":{"number":1, "episode":1, "description":"first_model"},
+    "experiment":{"number":1, "episode":4, "description":"first_model", "prompt_deletion":true},
     "hyperparameters":{
         "outer_loop_lr":1e-3,
         "inner_loop_lr":1e-3,
@@ -20,6 +20,6 @@
         "num_latents":5,
         "num_finetuning_steps":2,
         "num_adaptation_steps":5,
-        "episodes":5
+        "episodes":7
     }
 }

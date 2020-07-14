@@ -14,6 +14,7 @@ args = parser.parse_args()
 dataset = args.dataset[0]
 
 def train_model(config):
+    """Trains Model"""
     device = torch.device("cuda:0" if torch.cuda.is_available() and config.use_gpu else "cpu")
     if check_experiment(config):
         leo, optimizer, stats = load_model(config)
@@ -31,10 +32,11 @@ def train_model(config):
     episodes =  config.hyperparameters.episodes
     optimizer = torch.optim.Adam(leo.parameters(), lr=config.hyperparameters.outer_loop_lr)
     criterion = MSELoss(reduction="mean")
-         
+
     for episode in range(episodes_completed+1, episodes+1):
         tr_data, tr_data_masks, val_data, val_masks = metatrain_dataloader.get_batch_data()
-        train_stats = optimize_model(leo, episode, tr_data, tr_data_masks, val_masks, optimizer, criterion, train_stats)
+        train_stats = optimize_model(leo, episode, tr_data, tr_data_masks, val_data, val_masks, \
+                                    optimizer, criterion, train_stats)
         stats = edict(train_stats.get_latest_stats())
         print(f"episode:{stats.episode:03d}, loss:{stats.loss:2f}, iou:{stats.int_ov_union:2f}")
         
@@ -45,6 +47,7 @@ def train_model(config):
 
 
 def predict_model(config):
+    """Run inference on Model"""
     pass
 
 
