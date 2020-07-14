@@ -3,6 +3,7 @@ from utils import load_data, numpy_to_tensor
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, utils
 import collections, random
+import pandas as pd
 import numpy as np
 
 class MetaDataset(Dataset):
@@ -126,11 +127,11 @@ class TrainingStats():
         self._stats = []
     
     
-    def update_stats(self, epoch, loss, accuracy):
+    def update_stats(self, episode, loss, int_ov_union):
         self._stats.append({
-            "epoch":epoch,
-            "loss":loss,
-            "accuary":accuracy
+            "episode": episode,
+            "loss": loss,
+            "int_ov_union": int_ov_union
         })
 
     def reset_stats(self):
@@ -138,6 +139,9 @@ class TrainingStats():
 
     def get_stats(self):
         return pd.DataFrame(self._stats)
+
+    def get_latest_stats(self):
+        return self._stats[-1]
 
 
 

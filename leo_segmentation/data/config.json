@@ -1,11 +1,7 @@
 {
     "train":true,
     "use_gpu":false,
-    "episodes_completed":0,
     "logging_interval":10,
-    "load_model_status":false,
-    "model_path":'model/model-{}.ckpt'.format(epoch),
-    "saved_model_path":'model/',
     "dtype":"float32",
     "datasets_path":"data",
     "datasets":["pascal_voc", "sample_data", "fss1000"],
@@ -15,6 +11,7 @@
         "n_val_per_class":{"meta_train":5, "meta_val":5, "meta_test":5},
         "num_tasks":{"meta_train":12, "meta_val":12, "meta_test":12}
     },
+    "experiment":{"number":1, "episode":0, "description":"first_model"},
     "hyperparameters":{
         "outer_loop_lr":1e-3,
         "inner_loop_lr":1e-3,

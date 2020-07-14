@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 
 class LEO(nn.Module):
-  def __init__(self, lantent_dim):
+  def __init__(self):
     super(LEO, self).__init__()
     self.encoder = self.encoder_layers()
     
@@ -20,7 +20,6 @@ class LEO(nn.Module):
         nn.Conv2d(32, 32, kernel_size=4, stride=2, padding=1),#output(None, 32, 7, 7)
         nn.BatchNorm2d(32),
         nn.ReLU(True),       
-        nn.Linear(32*7*7, 2*self.lantent_dim)#dim = 2*lantent_dim
     )
     return layers
 

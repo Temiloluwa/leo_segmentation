@@ -2,12 +2,11 @@
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
-from model import LEO
 import json
 import pickle
 import os
-
 from easydict import EasyDict as edict
+from model import LEO
 
 
 def load_config(config_path:str="data/config.json"):
@@ -29,7 +28,7 @@ def load_data(config:dict, dataset:str, data_type:str):
         - filenames -  filenames of the format <classname>_<imagename>.jpg
         - masks - segmentation masks for image
     """
-    root_data_path = config.datasets_path
+    root_data_path = config.data_path
     if data_type not in ["meta_train", "meta_val", "meta_test"]:
         raise ValueError("Make sure dataset files end with train, val or test")
 
@@ -82,7 +81,32 @@ def optimize_model(model,data,target,optimizer):
 
     return loss,optimizer
 
-def load_model(model,optimizer,config):
+def check_experiment(config):
+    """
+    Checks if the experiment is new 
+    If it is not, it loads a saved model
+    Args:
+        model - config
+    
+    Returns:
+        if experiment exists:
+            model :loaded model that was saved
+            optimizer:loaded weights of optimizer
+        else:
+            None
+    """
+    experiment = config.experiment
+    model_root = os.path.join(config.data_path, "models")
+    existing_models = os.listdir(model_root)
+    if f"experiment_{experiment.number}" in existing_models:
+        return True
+    else:
+        return None
+
+   
+
+
+def load_model(model, optimizer, config):
 
     """
     Loads the model
@@ -96,18 +120,32 @@ def load_model(model,optimizer,config):
         optimizer:loaded weights of optimizer
         epoch:the last epoch where the training stopped
     """
-   
-    checkpoint = torch.load(config.saved_model_path)
-    model.load_state_dict(checkpoint['model_state_dict'])
+    experiment = config.experiment
+    model_dir  = os.path.join(config.data_path, "models", "experiment_{}"\
+                 .format(experiment.number))
+    
+    checkpoints = os.listdir(model_dir)
+    max_cp = max([int(cp[12]) for cp in checkpoints])
+    episode = max_cp if experiment.episode == -1 else experiment.episode
+    checkpoint_path = os.path.join(model_dir, f"checkpoint_{episode}.pth.tar")
+    checkpoint = torch.load(checkpoint_path)
+
+    leo = LEO()
+    optimizer = optim.SGD(leo.parameters(), lr=0.1, momentum=0.9)
+    leo.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    epoch = checkpoint['epoch']
     loss = checkpoint['loss']
-    
-    
-    return model,optimizer,epoch
+    int_ov_union = checkpoint['stats.int_ov_union']
+    stats = {
+        "episode": episode,
+        "loss": loss,
+        "int_ov_union": int_ov_union
+        }
+
+    return leo, optimizer, stats
 
 
-def save_model(model,optimizer,config,epoch,loss):
+def save_model(model, optimizer, config, stats):
     """
     Save the model while training
     Args:
@@ -121,11 +159,24 @@ def save_model(model,optimizer,config,epoch,loss):
         loss :train loss
         optimizer:weights after optimizing
     """
-    torch.save({
-            'epoch': epoch,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'loss': loss,
-            }, config.model_path)
+    data_to_save = {
+        'episode': stats.episode,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'loss': stats.loss,
+        'int_ov_union': stats.int_ov_union
+        }
+
+    experiment = config.experiment
+    model_root = os.path.join(config.data_path, "models")
+    model_dir  = os.path.join(model_root, "experiment_{}"\
+                 .format(experiment.number))
+
+    if not os.path.exists(model_dir):
+        os.makedirs(model_dir, exist_ok=True)
+        with open(os.path.join(model_dir, "model_description.txt"), "w") as f:
+            f.write(experiment.description)
+    checkpoint_path = os.path.join(model_dir, f"checkpoint_{stats.episode}.pth.tar") 
+    torch.save(data_to_save, checkpoint_path)
     
     
