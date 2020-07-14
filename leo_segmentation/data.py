@@ -126,14 +126,13 @@ class TrainingStats():
     def __init__(self):
         self._stats = []
     
-    
     def update_stats(self, episode, loss, int_ov_union):
         self._stats.append({
             "episode": episode,
             "loss": loss,
             "int_ov_union": int_ov_union
         })
-
+        
     def reset_stats(self):
         self._stats = []
 

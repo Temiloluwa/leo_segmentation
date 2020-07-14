@@ -1,9 +1,9 @@
 {
     "train":true,
     "use_gpu":false,
-    "logging_interval":10,
+    "checkpoint_interval":1,
     "dtype":"float32",
-    "datasets_path":"data",
+    "data_path":"data",
     "datasets":["pascal_voc", "sample_data", "fss1000"],
     "data_params":{
         "num_classes":3,
@@ -11,7 +11,7 @@
         "n_val_per_class":{"meta_train":5, "meta_val":5, "meta_test":5},
         "num_tasks":{"meta_train":12, "meta_val":12, "meta_test":12}
     },
-    "experiment":{"number":1, "episode":0, "description":"first_model"},
+    "experiment":{"number":1, "episode":1, "description":"first_model"},
     "hyperparameters":{
         "outer_loop_lr":1e-3,
         "inner_loop_lr":1e-3,

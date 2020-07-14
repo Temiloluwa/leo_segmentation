@@ -1,6 +1,5 @@
 # Contains helper functions
 import torch
-import torch.nn.functional as F
 import torch.optim as optim
 import json
 import pickle
@@ -59,9 +58,9 @@ def tensor_to_numpy(pytensor):
     if pytensor.is_cuda:
         return pytensor.cpu().detach().numpy()
     else:
-        return pytensor.numpy()
+        return pytensor.detach().numpy()
 
-def optimize_model(model,data,target,optimizer):
+def optimize_model(model, episode, tr_data, tr_data_masks, val_masks, optimizer, criterion, train_stats):
     
     """
     Optimizes the model
@@ -73,13 +72,14 @@ def optimize_model(model,data,target,optimizer):
         loss :train loss
         optimizer:weights after optimizing
     """
+    prediction = model(tr_data[0])
+    loss = criterion(prediction, tr_data[0])
     optimizer.zero_grad()
-    output = model(data)
-    loss = F.nll_loss(output, target)
     loss.backward()
     optimizer.step()
-
-    return loss,optimizer
+    int_ov_union = 0
+    train_stats.update_stats(episode, tensor_to_numpy(loss), int_ov_union)
+    return train_stats
 
 def check_experiment(config):
     """
@@ -97,6 +97,8 @@ def check_experiment(config):
     """
     experiment = config.experiment
     model_root = os.path.join(config.data_path, "models")
+    if not os.path.exists(model_root):
+        os.makedirs(model_root, exist_ok=True)
     existing_models = os.listdir(model_root)
     if f"experiment_{experiment.number}" in existing_models:
         return True
@@ -106,7 +108,7 @@ def check_experiment(config):
    
 
 
-def load_model(model, optimizer, config):
+def load_model(config):
 
     """
     Loads the model
@@ -125,17 +127,19 @@ def load_model(model, optimizer, config):
                  .format(experiment.number))
     
     checkpoints = os.listdir(model_dir)
-    max_cp = max([int(cp[12]) for cp in checkpoints])
+    checkpoints.pop()
+    max_cp = max([int(cp[11]) for cp in checkpoints])
+    #if experiment.episode == -1, load latest checkpoint
     episode = max_cp if experiment.episode == -1 else experiment.episode
     checkpoint_path = os.path.join(model_dir, f"checkpoint_{episode}.pth.tar")
     checkpoint = torch.load(checkpoint_path)
 
     leo = LEO()
-    optimizer = optim.SGD(leo.parameters(), lr=0.1, momentum=0.9)
+    optimizer = torch.optim.Adam(leo.parameters(), lr=config.hyperparameters.outer_loop_lr)
     leo.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     loss = checkpoint['loss']
-    int_ov_union = checkpoint['stats.int_ov_union']
+    int_ov_union = checkpoint['int_ov_union']
     stats = {
         "episode": episode,
         "loss": loss,
@@ -176,7 +180,12 @@ def save_model(model, optimizer, config, stats):
         os.makedirs(model_dir, exist_ok=True)
         with open(os.path.join(model_dir, "model_description.txt"), "w") as f:
             f.write(experiment.description)
-    checkpoint_path = os.path.join(model_dir, f"checkpoint_{stats.episode}.pth.tar") 
-    torch.save(data_to_save, checkpoint_path)
+    checkpoint_path = os.path.join(model_dir, f"checkpoint_{stats.episode}.pth.tar")
+    if not os.path.exists(checkpoint_path):
+        torch.save(data_to_save, checkpoint_path)
+    else:
+        os.remove(checkpoint_path)
+        torch.save(data_to_save, checkpoint_path)
+
     
     

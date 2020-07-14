@@ -14,12 +14,7 @@ class LEO(nn.Module):
 
   def encoder_layers(self):
     layers = nn.Sequential(
-        nn.Conv2d(1, 32, kernel_size=4, stride=2, padding=1), #output(None,32, 14, 14)
-        nn.BatchNorm2d(32),
-        nn.ReLU(True),
-        nn.Conv2d(32, 32, kernel_size=4, stride=2, padding=1),#output(None, 32, 7, 7)
-        nn.BatchNorm2d(32),
-        nn.ReLU(True),       
+        nn.Conv2d(1, 1, kernel_size=3, stride=1, padding=1), #output(None,32, 14, 14)     
     )
     return layers
 
