@@ -5,6 +5,8 @@ from torch import nn
 from torch.autograd import variable
 import numpy as np
 from torch.distributions import Normal
+import torch.optim as optim
+import torch.nn.functional as F
 
 
 class _EncoderBlock(nn.Module):
@@ -14,13 +16,9 @@ class _EncoderBlock(nn.Module):
             nn.Conv2d(in_channels, out_channels, kernel_size=2),
             nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True),
-            nn.Conv2d(out_channels, out_channels, kernel_size=2),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True),
         ]
         if dropout:
             layers.append(nn.Dropout())
-        layers.append(nn.MaxPool2d(kernel_size=2, stride=1))
         self.encode = nn.Sequential(*layers)
 
     def forward(self, x):
@@ -30,13 +28,9 @@ class _DecoderBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(_DecoderBlock, self).__init__()
         self.decode = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, kernel_size=2),
+            nn.ConvTranspose2d(in_channels, out_channels, kernel_size=2),
             nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True),
-            nn.ConvTranspose2d(out_channels, out_channels, kernel_size=2, stride=1),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True)
-        )
+            nn.ReLU(inplace=True))
 
     def forward(self, x):
         return self.decode(x)
@@ -44,80 +38,100 @@ class _DecoderBlock(nn.Module):
 class RelationNetwork(nn.Module):
     def __init__(self, in_channels, out_channels, dropout=False):
         super(RelationNetwork, self).__init__()
-        layers = [  nn.Conv2d(in_channels, out_channels, kernel_size=2, padding=1),
+        layers = [  nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
                     nn.BatchNorm2d(out_channels, momentum=1, affine=True),
                     nn.ReLU(inplace=True),
-                    nn.Conv2d(out_channels, in_channels, kernel_size=2, padding=1),
+                    nn.Conv2d(out_channels, in_channels, kernel_size=3, padding=1),
                     nn.BatchNorm2d(in_channels, momentum=1, affine=True),
                     nn.ReLU(inplace=True)]
         if dropout:
             layers.append(nn.Dropout())
         self.relation = nn.Sequential(*layers)
-        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
 
 
     def forward(self, concat_features):
         out = self.relation(concat_features)
-        out = self.upsample(out)
         return out
 
 class LEO(nn.Module):
     def __init__(self, config):
         super(LEO, self).__init__()
         self.config = config
+        self.loss = nn.CrossEntropyLoss()
         self.enc1 = _EncoderBlock(1, 32)
-        self.enc2 = _EncoderBlock(32, 64)
-        self.enc3 = _EncoderBlock(64, 128)
-        self.enc4 = _EncoderBlock(128, 256, dropout=True)
+        self.enc2 = _EncoderBlock(32, 64, dropout=True)
+        self.dec2 = _DecoderBlock(64, 32)
+        self.dec1 = _DecoderBlock(32, 1) #num of channels in decoder output must be equal to input * 2
 
-        self.center = _DecoderBlock(256, 512)
-        self.dec4 = _DecoderBlock(512, 256)
-        self.dec3 = _DecoderBlock(256, 128)
-        self.dec2 = _DecoderBlock(128, 64)
-        self.dec1 = nn.Sequential(
-            nn.Conv2d(64, 32, kernel_size=2),
-            nn.BatchNorm2d(32),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(32, 32, kernel_size=2),
-            nn.BatchNorm2d(32),
-            nn.ReLU(inplace=True),
-        )
 
     def encoder(self, embeddings):
         enc1 = self.enc1(embeddings)
         enc2 = self.enc2(enc1)
-        enc3 = self.enc3(enc2)
-        enc4 = self.enc4(enc3)
-        latent = self.center(enc4)
-        return latent
+        return enc2
 
     def decoder(self, latent):
-        dec4 = self.dec4(latent)
-        dec3 = self.dec3(dec4)
-        dec2 = self.dec2(dec3)
+        dec2 = self.dec2(latent)
         dec1 = self.dec1(dec2)
         return dec1
+
+    def leo_inner_loop(self, data, latents):
+        inner_lr = self.config['hyperparameters']['inner_loop_lr']
+        initial_latents = latents
+        tr_loss, _ = self.forward_decoder(data, latents)
+        for _ in range(self.config["hyperparameters"]["num_adaptation_steps"]):
+            tr_loss.backward()
+            grad = latents.grad
+            with torch.no_grad():
+                latents -= inner_lr * grad
+            tr_loss.zero_()
+            tr_loss, segmentation_weights = self.forward_decoder(data, latents)
+        return tr_loss, segmentation_weights
+
+    def finetuning_inner_loop(self, data, leo_loss, segmentation_weights):
+        finetuning_lr = self.config['hyperparameters']['finetuning_lr']
+        for _ in range(self.config["hyperparameters"]["num_finetuning_steps"]):
+            segmentation_weights.register_hook(self.save_grad(segmentation_weights))
+            leo_loss.backward(retain_graph=True)
+            #grad = torch.autograd.grad(segmentation_weights, leo_loss, grad_outputs=segmentation_weights)
+            grad = segmentation_weights.grad
+            with torch.no_grad():
+                segmentation_weights -= finetuning_lr * grad
+            leo_loss = self.calculate_inner_loss(data["tr_data_orig"], data["tr_data_masks"], segmentation_weights)
+            val_loss = self.calculate_inner_loss(data['val_data_orig'], data["val_data_masks"], segmentation_weights)
+
+        return val_loss
 
     def forward_encoder(self, data):
 
         latent = self.encoder(data)
-        latent = latent.clone().detach().requires_grad_(True)
         relation_network_outputs = self.relation_network(latent)
         latent_dist_params = self.average_codes_per_class(relation_network_outputs)
         latents, kl = self.possibly_sample(latent_dist_params)
+        latents.requires_grad_(True)
         return latents, kl
 
     def forward_decoder(self, data, latents):
-        weights_dist_params = self.decoder(latents)
-        dim_list = list(latents.size())
-        fan_in = dim_list[1]*dim_list[2]*dim_list[3]
-        fan_out = self.config["data_type"]["train"]["num_classes"]
-        stddev_offset = np.sqrt(2. / (fan_out + fan_in))
-        classifier_weights, _ = self.possibly_sample(weights_dist_params,
-                                                     stddev_offset=stddev_offset)
-        # add sampler - logic returns classifier weights
-        # add inner loss
-        return 'tr_loss', 'classifier_weights'
+        #removed kl divergence sampling from decoder
+        segmentation_weights = self.decoder(latents)
+        dim_list = list(segmentation_weights.size())
+        segmentation_weights= segmentation_weights.permute(1, 2, 3, 0)
+        segmentation_weights = segmentation_weights.view(dim_list[1], dim_list[2], dim_list[3], self.config["data_type"]["train"]["num_classes"], -1 )
+        segmentation_weights = segmentation_weights.permute(3, 4, 0, 1, 2)
+        loss = self.calculate_inner_loss(data["tr_data_orig"], data["tr_data_masks"], segmentation_weights)
+        return loss, segmentation_weights
+
+    def calculate_inner_loss(self, inputs, true_outputs, segmentation_weights):
+        output_mask = self.predict(inputs, segmentation_weights)
+        # output_mask = torch.argmax(prediction, dim=2) #needed to compute accuracy
+        dim_list = list(output_mask.size())
+        output_mask = output_mask.permute(2, 3, 4, 0, 1)
+        output_mask = output_mask.view(dim_list[2], dim_list[3], dim_list[4], -1)
+        output_mask = output_mask.permute(3, 0, 1, 2)
+        output_mask = output_mask.type(torch.FloatTensor)
+        target = true_outputs.clone()
+        true_outputs[target > 7] = 0 #temporary sample data improper
+        loss = self.loss(output_mask.type(torch.FloatTensor), true_outputs.squeeze(1).type(torch.LongTensor))
+        return loss
 
     def relation_network(self, latents):
         total_num_examples = self.config["data_type"]["train"]["num_classes"] * self.config["data_type"]["train"]["n_train_per_class"]
@@ -128,7 +142,7 @@ class LEO(nn.Module):
         concat_codes_serial = concat_codes.permute(2, 3, 4, 0, 1)
         concat_codes_serial = concat_codes_serial.contiguous().view(dim_list1[2], dim_list1[3], dim_list1[4], -1)
         concat_codes_serial = concat_codes_serial.permute(3, 0, 1, 2)
-        model = RelationNetwork(1024, 512)
+        model = RelationNetwork(128, 64)
         outputs = RelationNetwork.forward(model, concat_codes_serial)
         dim_list2 = list(outputs.size())
         outputs = outputs.view(int(np.sqrt(dim_list2[0])), dim_list2[1], dim_list2[2], dim_list2[3], int(np.sqrt(dim_list2[0])))  #torch.cat((output1, output2), dim = 1)
@@ -155,7 +169,7 @@ class LEO(nn.Module):
         dim_list = list(distribution_params.size())
         means, unnormalized_stddev = torch.split(distribution_params, int(dim_list[1]/2), dim = 1)
         stddev = torch.exp(unnormalized_stddev)
-        stddev -= (1. - stddev_offset)
+        stddev -= (1. - stddev_offset) #try your ideas
         stddev = torch.max(stddev, torch.tensor(1e-10))
         distribution = Normal(means, stddev)
         samples = distribution.sample()
@@ -167,23 +181,20 @@ class LEO(nn.Module):
         kl = torch.mean(normal_distribution.log_prob(samples) - random_prior.log_prob(samples))
         return kl
 
-    def leo_inner_loop(self, data, latents):
-        inner_lr = self.config['hyperparameters']['inner_loop_lr']
-        initial_latents = latents
+    def predict(self, inputs, weights):
+        inputs = inputs.unsqueeze(2) #num of channels is missing in sample data
+        #after_dropout = torch.nn.dropout(inputs, rate=self.dropout_rate)
+        # This is 3-dimensional equivalent of a matrix product, where we sum over
+        # the last (embedding_dim) dimension. We get [N, K, N, K, H, W] tensor as output.
+        per_image_predictions = torch.einsum("ijkab,lmkab->ijlmab", inputs, weights)
 
-        loss, _ = self.forward_decoder(data, latents)
-        for _ in range(self.config["hyperparameters"]["num_adaptation_steps"]):
-            loss.backward(retain_graph=True)
-            loss_grad = torch.autograd.grad(loss, latents, create_graph=True)
-            latents -= inner_lr * loss_grad
-            loss, classifier_weights = self.forward_decoder(data, latents)
-        return loss, classifier_weights
+        # Predictions have shape [N, K, N]: for each image ([N, K] of them), what
+        # is the probability of a given class (N)?
+        predictions = torch.mean(per_image_predictions, dim=3)
+        return predictions
 
-    def finetuning_inner_loop(self, data, leo_loss, classifier_weights):
-        finetuning_lr = self.config['hyperparameters']['finetuning_lr']
-        for _ in range(self.config["hyperparameters"]["num_finetuning_steps"]):
-            leo_loss.backward(retain_graph=True)
-            loss_grad = torch.autograd.grad(leo_loss, classifier_weights, create_graph=True)
-            classifier_weights -= finetuning_lr * loss_grad
-            #calculate train loss
-        #calculate validation loss
+
+    def save_grad(self, name):
+        def hook(grad):
+            name.grad = grad
+        return hook
