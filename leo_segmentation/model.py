@@ -7,7 +7,7 @@ import numpy as np
 from torch.distributions import Normal
 import torch.optim as optim
 import torch.nn.functional as F
-
+from easydict import EasyDict as edict
 
 class _EncoderBlock(nn.Module):
     def __init__(self, in_channels, out_channels,  dropout=False):
@@ -54,9 +54,10 @@ class RelationNetwork(nn.Module):
         return out
 
 class LEO(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, mode):
         super(LEO, self).__init__()
         self.config = config
+        self.mode = mode
         self.loss = nn.CrossEntropyLoss()
         self.enc1 = _EncoderBlock(1, 32)
         self.enc2 = _EncoderBlock(32, 64, dropout=True)
@@ -75,7 +76,7 @@ class LEO(nn.Module):
         return dec1
 
     def leo_inner_loop(self, data, latents):
-        inner_lr = self.config['hyperparameters']['inner_loop_lr']
+        inner_lr = self.config["hyperparameters"]["inner_loop_lr"]
         initial_latents = latents
         tr_loss, _ = self.forward_decoder(data, latents)
         for _ in range(self.config["hyperparameters"]["num_adaptation_steps"]):
@@ -88,16 +89,13 @@ class LEO(nn.Module):
         return tr_loss, segmentation_weights
 
     def finetuning_inner_loop(self, data, leo_loss, segmentation_weights):
-        finetuning_lr = self.config['hyperparameters']['finetuning_lr']
+        finetuning_lr = self.config["hyperparameters"]["finetuning_lr"]
         for _ in range(self.config["hyperparameters"]["num_finetuning_steps"]):
-            segmentation_weights.register_hook(self.save_grad(segmentation_weights))
-            leo_loss.backward(retain_graph=True)
-            #grad = torch.autograd.grad(segmentation_weights, leo_loss, grad_outputs=segmentation_weights)
-            grad = segmentation_weights.grad
+            grad = torch.autograd.grad(leo_loss, segmentation_weights)
             with torch.no_grad():
-                segmentation_weights -= finetuning_lr * grad
+                segmentation_weights -= finetuning_lr * grad[0]
             leo_loss = self.calculate_inner_loss(data["tr_data_orig"], data["tr_data_masks"], segmentation_weights)
-            val_loss = self.calculate_inner_loss(data['val_data_orig'], data["val_data_masks"], segmentation_weights)
+            val_loss = self.calculate_inner_loss(data["val_data_orig"], data["val_data_masks"], segmentation_weights)
 
         return val_loss
 
@@ -115,7 +113,7 @@ class LEO(nn.Module):
         segmentation_weights = self.decoder(latents)
         dim_list = list(segmentation_weights.size())
         segmentation_weights= segmentation_weights.permute(1, 2, 3, 0)
-        segmentation_weights = segmentation_weights.view(dim_list[1], dim_list[2], dim_list[3], self.config["data_type"]["train"]["num_classes"], -1 )
+        segmentation_weights = segmentation_weights.view(dim_list[1], dim_list[2], dim_list[3], self.config.data_params.num_classes, -1 )
         segmentation_weights = segmentation_weights.permute(3, 4, 0, 1, 2)
         loss = self.calculate_inner_loss(data["tr_data_orig"], data["tr_data_masks"], segmentation_weights)
         return loss, segmentation_weights
@@ -129,12 +127,12 @@ class LEO(nn.Module):
         output_mask = output_mask.permute(3, 0, 1, 2)
         output_mask = output_mask.type(torch.FloatTensor)
         target = true_outputs.clone()
-        true_outputs[target > 7] = 0 #temporary sample data improper
+        true_outputs[target > self.config["data_params"]["num_classes"]-1] = 0 #temporary sample data improper
         loss = self.loss(output_mask.type(torch.FloatTensor), true_outputs.squeeze(1).type(torch.LongTensor))
         return loss
 
     def relation_network(self, latents):
-        total_num_examples = self.config["data_type"]["train"]["num_classes"] * self.config["data_type"]["train"]["n_train_per_class"]
+        total_num_examples = self.config["data_params"]["num_classes"] * self.config["data_params"]["n_train_per_class"][self.mode]
         left = latents.unsqueeze(1).repeat(1, total_num_examples, 1, 1, 1)
         right = latents.unsqueeze(0).repeat(total_num_examples, 1, 1, 1, 1)
         concat_codes = torch.cat((left, right), dim = 2)
@@ -154,11 +152,11 @@ class LEO(nn.Module):
     def average_codes_per_class(self, codes):
         dim_list1 = list(codes.size())
         codes = codes.permute(1, 2, 3, 0) #permute to ensure that view is not distructing the tensor structure
-        codes = codes.view(dim_list1[1], dim_list1[2], dim_list1[3], self.config["data_type"]["train"]["num_classes"],
-                           self.config["data_type"]["train"]["n_train_per_class"])
+        codes = codes.view(dim_list1[1], dim_list1[2], dim_list1[3], self.config["data_params"]["num_classes"],
+                           self.config["data_params"]["n_train_per_class"][self.mode])
         codes = codes.permute(3, 4, 0, 1, 2)
         codes = torch.mean(codes, dim = 1)
-        codes = codes.unsqueeze(1).repeat(1, self.config["data_type"]["train"]["n_train_per_class"], 1, 1, 1)
+        codes = codes.unsqueeze(1).repeat(1, self.config["data_params"]["n_train_per_class"][self.mode], 1, 1, 1)
         dim_list2 = list(codes.size())
         codes = codes.permute(2, 3, 4, 0, 1)
         codes = codes.contiguous().view(dim_list2[2], dim_list2[3], dim_list2[4], -1)
