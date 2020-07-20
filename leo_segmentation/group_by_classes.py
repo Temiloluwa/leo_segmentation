@@ -34,9 +34,7 @@ def gen_img_or_mask(image_or_mask, select_class, working_fold):
             source = os.path.join(source_path, filename)
             destination = os.path.join(destination_path,filename)
             dest = shutil.copy(source, destination)
-    print(f"num files in source equal dest{len(os.listdir(source_path))==len(os.listdir(destination_path))}")
-    print(f"len source {len(os.listdir(source_path))}")
-    print(f"len dest {len(os.listdir(destination_path))}")
+    
 
 for i in range(20):
     select_class = i
