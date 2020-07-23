@@ -26,7 +26,7 @@ class_names = ['aeroplane',
  
 def gen_img_or_mask(image_or_mask, select_class, working_fold):
     print(f"Working on {image_or_mask} for class {class_names[select_class]}")
-    destination_path = os.path.join(os.getcwd(), f"data/grouped_by_classes/{class_names[select_class]}/{image_or_mask}")
+    destination_path = os.path.join(os.getcwd(), f"data/grouped_by_classes/{image_or_mask}/{class_names[select_class]}")
     os.makedirs(destination_path, exist_ok=True)
     source_path = os.path.join(os.getcwd(), "data", "original_pascalvoc5i" ,"pascal-5", f"{working_fold}", f"{image_or_mask}", "classa") 
     num = 0
@@ -55,7 +55,7 @@ for i in range(20):
             line_data.remove('')
             if line_data[1]=='1':
                 images_or_mask_list.append(line_data[0])
-                
+
     print("num images", len(images_or_mask_list))
     with open(path_to_train_list, "r") as f:
         images_list = f.readlines()
