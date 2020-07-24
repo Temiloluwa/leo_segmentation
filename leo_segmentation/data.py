@@ -3,7 +3,9 @@ from utils import load_data, numpy_to_tensor
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, utils
 import collections, random
+import pandas as pd
 import numpy as np
+import os
 
 
 class MetaDataset(Dataset):
@@ -23,16 +25,13 @@ class MetaDataset(Dataset):
         Converts the dataset dictionary to a mappping between
         classes in the data and the list of filenames and
         a mapping between filenames and both their embeddings and masks
-
         Args:
             dataset(str): name of dataset
-
         Returns:
             - image_class_mapping, image_mask_embeddings(tuple)
             - image_class_mapping(dictionary): keys are class, values are list of filenames in class
             - image_mask_embeddings(tuple): keys are filenames, values are a tuple of embeddings
                                      and masks for that image
-
         """
         data_dict = load_data(self._config, dataset, self._data_type)
         image_class_mapping = collections.OrderedDict()
@@ -59,7 +58,8 @@ class Datagenerator():
     """Data Generator class"""
 
     def __init__(self, dataset, config, data_type):
-        self.config = config["data_type"][data_type]
+        self.data_type = data_type
+        self.config = config.data_params
         self.dataset = MetaDataset(dataset, config, data_type)
         self._data_loader = DataLoader(self.dataset, batch_size=None, shuffle=False, \
                                        num_workers=0, collate_fn=self.collation_fn)
@@ -81,12 +81,13 @@ class Datagenerator():
             - val_data: (batch_size, num_classes, val_size, DIMS): validation image embeddings
             - val_masks: (batch_size, num_classes, val_size, DIMS): validation image masks
         """
+        num_tasks = self.config.num_tasks[self.data_type]
         _all_class_images, _image_mask_embeddings = data
-        for i in range(self.config["num_tasks"]):
+        for i in range(num_tasks):
             class_list = list(_all_class_images.keys())
-            tr_size = self.config["n_train_per_class"]
-            val_size = self.config["n_val_per_class"]
-            num_classes = self.config["num_classes"]
+            tr_size = self.config.n_train_per_class[self.data_type]
+            val_size = self.config.n_val_per_class[self.data_type]
+            num_classes = self.config.num_classes
             sample_count = (tr_size + val_size)
             random.shuffle(class_list)
             shuffled_list = class_list[:num_classes]
@@ -101,7 +102,6 @@ class Datagenerator():
                 image_paths.append(all_images)
 
             path_array = np.array(image_paths)
-
             embedding_array = np.array([[_image_mask_embeddings[image_path][0]
                                          for image_path in class_paths]
                                         for class_paths in path_array])
@@ -109,10 +109,9 @@ class Datagenerator():
             mask_array = np.array([[_image_mask_embeddings[image_path][1]
                                     for image_path in class_paths]
                                    for class_paths in path_array])
-
             if i == 0:
-                batch_embeddings = np.empty((self.config["num_tasks"],) + embedding_array.shape)
-                batch_masks = np.empty((self.config["num_tasks"],) + mask_array.shape)
+                batch_embeddings = np.empty((num_tasks,) + embedding_array.shape)
+                batch_masks = np.empty((num_tasks,) + mask_array.shape)
             batch_embeddings[i] = embedding_array
             batch_masks[i] = mask_array
 
@@ -124,19 +123,40 @@ class Datagenerator():
                numpy_to_tensor(val_data), numpy_to_tensor(val_masks)
 
 
+class TrainingStats():
+    """Stores train statistics data"""
 
+    def __init__(self, config):
+        self._stats = []
+        self.config = config
 
+    def update_stats(self, episode, loss, int_ov_union):
+        self._stats.append({
+            "episode": episode,
+            "loss": loss,
+            "int_ov_union": int_ov_union
+        })
+        self.episode = episode
+        self.loss = loss
+        self.int_ov_union = int_ov_union
+        self.log_to_file()
 
+    def reset_stats(self):
+        self._stats = []
 
+    def get_stats(self):
+        return pd.DataFrame(self._stats)
 
+    def get_latest_stats(self):
+        return self._stats[-1]
 
+    def log_to_file(self):
+        model_root = os.path.join(self.config.data_path, "models")
+        model_dir = os.path.join(model_root, "experiment_{}" \
+                                 .format(self.config.experiment.number))
 
-
-
-
-
-
-
-
-
+        with open(os.path.join(model_dir, "model_log.txt"), "a") as f:
+            msg = f"\nepisode:{self.episode:03d}, loss:{self.loss:2f}, "
+            msg += f"iou:{self.int_ov_union:2f}"
+            f.write(msg)
 

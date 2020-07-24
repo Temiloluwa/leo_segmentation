@@ -15,10 +15,10 @@ class _EncoderBlock(nn.Module):
         layers = [
             nn.Conv2d(in_channels, out_channels, kernel_size=2),
             nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True),
+            nn.ReLU(inplace=False),
         ]
         if dropout:
-            layers.append(nn.Dropout())
+            layers.append(nn.Dropout(inplace=False))
         self.encode = nn.Sequential(*layers)
 
     def forward(self, x):
@@ -30,7 +30,7 @@ class _DecoderBlock(nn.Module):
         self.decode = nn.Sequential(
             nn.ConvTranspose2d(in_channels, out_channels, kernel_size=2),
             nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True))
+            nn.ReLU(inplace=False))
 
     def forward(self, x):
         return self.decode(x)
@@ -40,12 +40,12 @@ class RelationNetwork(nn.Module):
         super(RelationNetwork, self).__init__()
         layers = [  nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
                     nn.BatchNorm2d(out_channels, momentum=1, affine=True),
-                    nn.ReLU(inplace=True),
+                    nn.ReLU(inplace=False),
                     nn.Conv2d(out_channels, in_channels, kernel_size=3, padding=1),
                     nn.BatchNorm2d(in_channels, momentum=1, affine=True),
-                    nn.ReLU(inplace=True)]
+                    nn.ReLU(inplace=False)]
         if dropout:
-            layers.append(nn.Dropout())
+            layers.append(nn.Dropout(inplace=False))
         self.relation = nn.Sequential(*layers)
 
 
@@ -63,7 +63,7 @@ class LEO(nn.Module):
         self.enc2 = _EncoderBlock(32, 64, dropout=True)
         self.dec2 = _DecoderBlock(64, 32)
         self.dec1 = _DecoderBlock(32, 1) #num of channels in decoder output must be equal to input * 2
-
+        self.RelationNetwork = RelationNetwork(128, 64)
 
     def encoder(self, embeddings):
         enc1 = self.enc1(embeddings)
@@ -79,9 +79,11 @@ class LEO(nn.Module):
         inner_lr = self.config["hyperparameters"]["inner_loop_lr"]
         initial_latents = latents
         tr_loss, _ = self.forward_decoder(data, latents)
+
         for _ in range(self.config["hyperparameters"]["num_adaptation_steps"]):
             tr_loss.backward()
             grad = latents.grad
+
             with torch.no_grad():
                 latents -= inner_lr * grad
             tr_loss.zero_()
@@ -92,6 +94,7 @@ class LEO(nn.Module):
         finetuning_lr = self.config["hyperparameters"]["finetuning_lr"]
         for _ in range(self.config["hyperparameters"]["num_finetuning_steps"]):
             grad = torch.autograd.grad(leo_loss, segmentation_weights)
+
             with torch.no_grad():
                 segmentation_weights -= finetuning_lr * grad[0]
             leo_loss = self.calculate_inner_loss(data["tr_data_orig"], data["tr_data_masks"], segmentation_weights)
@@ -100,13 +103,18 @@ class LEO(nn.Module):
         return val_loss
 
     def forward_encoder(self, data):
+        with torch.autograd.set_detect_anomaly(True):
+            data = torch.tensor(data, requires_grad=False)
+            latent = self.encoder(data)
 
-        latent = self.encoder(data)
-        relation_network_outputs = self.relation_network(latent)
-        latent_dist_params = self.average_codes_per_class(relation_network_outputs)
-        latents, kl = self.possibly_sample(latent_dist_params)
-        latents.requires_grad_(True)
-        return latents, kl
+            relation_network_outputs = self.relation_network(latent)
+            latent_dist_params = self.average_codes_per_class(relation_network_outputs)
+            latents, kl = self.possibly_sample(latent_dist_params)
+            #if not self.mode == 'meta_train':
+            #    latent = latent.detach() # because there is no kl sampling
+            latents = torch.tensor(latents, requires_grad=False)
+            latents.requires_grad_(True)
+            return latents, kl
 
     def forward_decoder(self, data, latents):
         #removed kl divergence sampling from decoder
@@ -133,15 +141,15 @@ class LEO(nn.Module):
 
     def relation_network(self, latents):
         total_num_examples = self.config["data_params"]["num_classes"] * self.config["data_params"]["n_train_per_class"][self.mode]
-        left = latents.unsqueeze(1).repeat(1, total_num_examples, 1, 1, 1)
-        right = latents.unsqueeze(0).repeat(total_num_examples, 1, 1, 1, 1)
+        left = latents.clone().unsqueeze(1).repeat(1, total_num_examples, 1, 1, 1)
+        right = latents.clone().unsqueeze(0).repeat(total_num_examples, 1, 1, 1, 1)
         concat_codes = torch.cat((left, right), dim = 2)
         dim_list1 = list(concat_codes.size())
         concat_codes_serial = concat_codes.permute(2, 3, 4, 0, 1)
         concat_codes_serial = concat_codes_serial.contiguous().view(dim_list1[2], dim_list1[3], dim_list1[4], -1)
         concat_codes_serial = concat_codes_serial.permute(3, 0, 1, 2)
-        model = RelationNetwork(128, 64)
-        outputs = RelationNetwork.forward(model, concat_codes_serial)
+        #model = RelationNetwork(128, 64)
+        outputs = self.RelationNetwork.forward(concat_codes_serial)
         dim_list2 = list(outputs.size())
         outputs = outputs.view(int(np.sqrt(dim_list2[0])), dim_list2[1], dim_list2[2], dim_list2[3], int(np.sqrt(dim_list2[0])))  #torch.cat((output1, output2), dim = 1)
         outputs = outputs.permute(0, 4, 1, 2, 3)
@@ -165,11 +173,13 @@ class LEO(nn.Module):
 
     def possibly_sample(self, distribution_params, stddev_offset=0.):
         dim_list = list(distribution_params.size())
-        means, unnormalized_stddev = torch.split(distribution_params, int(dim_list[1]/2), dim = 1)
-        stddev = torch.exp(unnormalized_stddev)
+        means, stddev = torch.split(distribution_params, int(dim_list[1]/2), dim = 1)
+        #stddev = torch.exp(unnormalized_stddev)
         stddev -= (1. - stddev_offset) #try your ideas
         stddev = torch.max(stddev, torch.tensor(1e-10))
         distribution = Normal(means, stddev)
+        if not self.mode == 'meta_train':
+            return means, 0.0
         samples = distribution.sample()
         kl_divergence = self.kl_divergence(samples, distribution)
         return samples, kl_divergence
@@ -191,6 +201,12 @@ class LEO(nn.Module):
         predictions = torch.mean(per_image_predictions, dim=3)
         return predictions
 
+    def grads_and_vars(self, metatrain_loss):
+        with torch.autograd.set_detect_anomaly(True):
+            metatrain_variables = self.parameters()
+            metatrain_gradients = torch.autograd.grad(metatrain_loss, metatrain_variables, retain_graph=True)
+            #nan_loss_or_grad = torch.isnan(metatrain_loss)| torch.reduce([torch.reduce(torch.isnan(g))for g in metatrain_gradients])
+        return metatrain_gradients, metatrain_variables
 
     def save_grad(self, name):
         def hook(grad):
