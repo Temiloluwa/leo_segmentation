@@ -2,12 +2,8 @@
 # Computational graph creation
 import torch
 from torch import nn
-from torch.autograd import variable
 import numpy as np
 from torch.distributions import Normal
-import torch.optim as optim
-import torch.nn.functional as F
-from easydict import EasyDict as edict
 
 class _EncoderBlock(nn.Module):
     def __init__(self, in_channels, out_channels,  dropout=False):
@@ -54,7 +50,10 @@ class RelationNetwork(nn.Module):
         return out
 
 class LEO(nn.Module):
-    def __init__(self, config, mode):
+    """
+    contains functions to perform latent embedding optimization
+    """
+    def __init__(self, config, mode="meta_train"):
         super(LEO, self).__init__()
         self.config = config
         self.mode = mode
@@ -62,7 +61,7 @@ class LEO(nn.Module):
         self.enc1 = _EncoderBlock(1, 32)
         self.enc2 = _EncoderBlock(32, 64, dropout=True)
         self.dec2 = _DecoderBlock(64, 32)
-        self.dec1 = _DecoderBlock(32, 1) #num of channels in decoder output must be equal to input * 2
+        self.dec1 = _DecoderBlock(32, 1) #num of channels in decoder output must be equal to input
         self.RelationNetwork = RelationNetwork(128, 64)
 
     def encoder(self, embeddings):
@@ -76,6 +75,16 @@ class LEO(nn.Module):
         return dec1
 
     def leo_inner_loop(self, data, latents):
+        """
+        This function does "latent code optimization" that is back propagation  until latent codes and
+        updating the latent weights
+        Args:
+            data (dict) : contains tr_data, tr_data_masks, val_data, val_data_masks
+            latents (tensor) : shape ((num_classes * num_eg_per_class), latent_channels, H, W)
+        Returns:
+            tr_loss : computed as crossentropyloss (groundtruth--> tr_data_mask, prediction--> einsum(tr_data, segmentation_weights))
+            segmentation_weights : shape(num_classes, num_eg_per_class, channels, H, W)
+        """
         inner_lr = self.config["hyperparameters"]["inner_loop_lr"]
         initial_latents = latents
         tr_loss, _ = self.forward_decoder(data, latents)
@@ -91,6 +100,15 @@ class LEO(nn.Module):
         return tr_loss, segmentation_weights
 
     def finetuning_inner_loop(self, data, leo_loss, segmentation_weights):
+        """
+        This function does "segmentation_weights optimization"
+        Args:
+            data (dict) : contains tr_data, tr_data_masks, val_data, val_data_masks
+            leo_loss (tensor_0shape) : computed as crossentropyloss (groundtruth--> tr_data_mask, prediction--> einsum(tr_data, segmentation_weights))
+           segmentation_weights (tensor) : shape(num_classes, num_eg_per_class, channels, H, W)
+        Returns:
+            val_loss (tensor_0shape) : computed as crossentropyloss (groundtruth--> val_data_mask, prediction--> einsum(val_data, segmentation_weights))
+        """
         finetuning_lr = self.config["hyperparameters"]["finetuning_lr"]
         for _ in range(self.config["hyperparameters"]["num_finetuning_steps"]):
             grad = torch.autograd.grad(leo_loss, segmentation_weights)
@@ -102,21 +120,39 @@ class LEO(nn.Module):
 
         return val_loss
 
-    def forward_encoder(self, data):
-        with torch.autograd.set_detect_anomaly(True):
-            data = torch.tensor(data, requires_grad=False)
-            latent = self.encoder(data)
+    def forward_encoder(self, data, mode):
+        """
+        This function generates latent codes  from the input data pass it through relation network and
+        computes kl_loss after sampling
+        Args:
+            data (tensor): input or tr_data shape ((num_classes * num_eg_per_class), channel, H, W)
+            mode (str): overwrites the default mode "meta_train" with one among ("meta_train", "meta_val", "meta_test")
+        Returns:
+            latent_leaf (tensor) : shape ((num_classes * num_eg_per_class), latent_channels, H, W) leaf node where
+            backpropagation of LEO ends.
+            kl_loss (tensor_0shape): how much the distribution sampled from latent code deviates from normal distribution
+        """
+        self.mode = mode
+        latent = self.encoder(data)
 
-            relation_network_outputs = self.relation_network(latent)
-            latent_dist_params = self.average_codes_per_class(relation_network_outputs)
-            latents, kl = self.possibly_sample(latent_dist_params)
-            #if not self.mode == 'meta_train':
-            #    latent = latent.detach() # because there is no kl sampling
-            latents = torch.tensor(latents, requires_grad=False)
-            latents.requires_grad_(True)
-            return latents, kl
+        relation_network_outputs = self.relation_network(latent)
+        latent_dist_params = self.average_codes_per_class(relation_network_outputs)
+        latents, kl_loss = self.possibly_sample(latent_dist_params)
+        latent_leaf = latents.clone().detach() #to make latents the leaf node to perform backpropagation until latents
+        latent_leaf.requires_grad_(True)
+        return latent_leaf, kl_loss
 
     def forward_decoder(self, data, latents):
+        """
+        This function decodes the latent codes to get the segmentation weights that has same shape as input tensor
+        and computes the leo cross entropy segmentation loss.
+        Args:
+            data (dict) : contains tr_data, tr_data_masks, val_data, val_data_masks
+            latents (tensor) : shape ((num_classes * num_eg_per_class), latent_channels, H, W)
+        Returns:
+            loss (tensor_0shape): computed as crossentropyloss (groundtruth--> tr/val_data_mask, prediction--> einsum(tr/val_data, segmentation_weights))
+            segmentation_weights (tensor) : shape(num_classes, num_eg_per_class, channels, H, W)
+        """
         #removed kl divergence sampling from decoder
         segmentation_weights = self.decoder(latents)
         dim_list = list(segmentation_weights.size())
@@ -127,6 +163,15 @@ class LEO(nn.Module):
         return loss, segmentation_weights
 
     def calculate_inner_loss(self, inputs, true_outputs, segmentation_weights):
+        """
+        This function finds the prediction mask and calculates the loss of prediction_mask from ground_truth mask
+        Args:
+             inputs (tensor): tr/val_data shape ((num_classes * num_eg_per_class), channels, H, W)
+             true_outputs (tensor): tr/val_data_mask shape ((num_classes * num_eg_per_class), 1 (binary mask), H, W)
+             segmentation_weights (tensor) : shape(num_classes, num_eg_per_class, channels, H, W)
+        Returns:
+            loss (tensor_0shape): computed as crossentropyloss (groundtruth--> tr/val_data_mask, prediction--> einsum(tr/val_data, segmentation_weights))
+        """
         output_mask = self.predict(inputs, segmentation_weights)
         # output_mask = torch.argmax(prediction, dim=2) #needed to compute accuracy
         dim_list = list(output_mask.size())
@@ -140,6 +185,23 @@ class LEO(nn.Module):
         return loss
 
     def relation_network(self, latents):
+        """
+        concatenates each latent with everyother to compute the relation between different input images
+        Args:
+           latents (tensor) : shape ((num_classes * num_eg_per_class), latent_channels, H, W)
+        Returns:
+            outputs (tesnor) : shape ((num_classes * num_eg_per_class), channels, H, W)
+        Architecture:
+        Example:Original input shape (num_classes->3, num_eg_per class->2, Channel->1, H->32, W->30)
+                generated latent shape ((num_classes * num_eg_per_class)->6, Channel->64, H->30, W->18)
+                left shape ((num_classes * num_eg_per_class)->6, (num_classes * num_eg_per_class)->6, Channel->64, H->30, W->18)
+                right shape ((num_classes * num_eg_per_class)->6, (num_classes * num_eg_per_class)->6, Channel->64, H->30, W->18)
+                concat_code--> concats left and right along channels shape ((num_classes * num_eg_per_class)->6, (num_classes * num_eg_per_class)->6, Channel->128, H->30, W->18)
+                concat_code_serial --> serialise dim 0, 1 to pass it in sequence to the relation network (36, Channel->128, H->30, W->18)
+                pass the concat code serial to relatio network get the output tensor ((36, Channel->128, H->30, W->18)
+                reshape the tesnor to get dim 0, 1 before serialising ((num_classes * num_eg_per_class)->6, (num_classes * num_eg_per_class)->6, Channel->128, H->30, W->18)
+                find the mean along dim 0, 1 to get ((num_classes * num_eg_per_class)->6, Channel->128, H->30, W->18)
+        """
         total_num_examples = self.config["data_params"]["num_classes"] * self.config["data_params"]["n_train_per_class"][self.mode]
         left = latents.clone().unsqueeze(1).repeat(1, total_num_examples, 1, 1, 1)
         right = latents.clone().unsqueeze(0).repeat(total_num_examples, 1, 1, 1, 1)
@@ -148,7 +210,6 @@ class LEO(nn.Module):
         concat_codes_serial = concat_codes.permute(2, 3, 4, 0, 1)
         concat_codes_serial = concat_codes_serial.contiguous().view(dim_list1[2], dim_list1[3], dim_list1[4], -1)
         concat_codes_serial = concat_codes_serial.permute(3, 0, 1, 2)
-        #model = RelationNetwork(128, 64)
         outputs = self.RelationNetwork.forward(concat_codes_serial)
         dim_list2 = list(outputs.size())
         outputs = outputs.view(int(np.sqrt(dim_list2[0])), dim_list2[1], dim_list2[2], dim_list2[3], int(np.sqrt(dim_list2[0])))  #torch.cat((output1, output2), dim = 1)
@@ -158,6 +219,12 @@ class LEO(nn.Module):
         return outputs
 
     def average_codes_per_class(self, codes):
+        """
+        Args:
+            codes (tensor): output of relation network
+        Returns:
+            codes averaged along classes
+        """
         dim_list1 = list(codes.size())
         codes = codes.permute(1, 2, 3, 0) #permute to ensure that view is not distructing the tensor structure
         codes = codes.view(dim_list1[1], dim_list1[2], dim_list1[3], self.config["data_params"]["num_classes"],
@@ -202,13 +269,15 @@ class LEO(nn.Module):
         return predictions
 
     def grads_and_vars(self, metatrain_loss):
-        with torch.autograd.set_detect_anomaly(True):
-            metatrain_variables = self.parameters()
-            metatrain_gradients = torch.autograd.grad(metatrain_loss, metatrain_variables, retain_graph=True)
-            #nan_loss_or_grad = torch.isnan(metatrain_loss)| torch.reduce([torch.reduce(torch.isnan(g))for g in metatrain_gradients])
+        """
+        this function retrieves current gradient values for (Encoder, Decoder, Relation Network) LEO
+        Args:
+            metatrain_loss (tensor_oshape) : mean validation loss of LEO model for the entire data batches
+        Returns:
+            metatrain_variables (object) : parameter list (Encoder, Decoder, Relation Network)
+            metatrain_gradients (tuple) : gradients of metatrain_variables w.r.t metatrain_loss
+        """
+        metatrain_variables = self.parameters()
+        metatrain_gradients = torch.autograd.grad(metatrain_loss, metatrain_variables, retain_graph=True)
+        #nan_loss_or_grad = torch.isnan(metatrain_loss)| torch.reduce([torch.reduce(torch.isnan(g))for g in metatrain_gradients])
         return metatrain_gradients, metatrain_variables
-
-    def save_grad(self, name):
-        def hook(grad):
-            name.grad = grad
-        return hook
