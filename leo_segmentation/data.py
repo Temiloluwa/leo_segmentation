@@ -1,126 +1,123 @@
 # contains data preprocessing functions
-from utils import load_data, numpy_to_tensor
+from utils import numpy_to_tensor, meta_classes_selector, load_npy
 from torch.utils.data import Dataset, DataLoader
-from torchvision import transforms, utils
+from torchvision import transforms, utils, datasets
 import collections, random
 import pandas as pd
 import numpy as np
 import os
 
 
-class MetaDataset(Dataset):
-    def __init__(self, dataset, config, data_type):
-        self._config = config
+class Datagenerator(Dataset):
+    """Data generator for meta train, meta val and meta test"""
+
+    def __init__(self, config, dataset, data_type, generate_new_metaclasses=False):
+        #issue: config and dataset exchanged
+        if config == "pascal_voc":
+            self._config = dataset
+            self._dataset = config
+        else:
+            self._config = config
+            self._dataset = dataset
         self._data_type = data_type
-        self._dataset = self._index_data(dataset)
+        self.classes_dict = meta_classes_selector(config, dataset, generate_new_metaclasses)
 
     def __len__(self):
         return len(self._dataset)
 
     def __getitem__(self, idx):
-        return self._dataset
+        config = self._config.data_params
+        dataset_root_path = os.path.join(os.path.dirname(__file__), self._config.data_path, self._dataset)
+        train_root_path = os.path.join(dataset_root_path, "train")
+        val_root_path = os.path.join(dataset_root_path, "val")
+        classes = self.classes_dict[self._data_type]
 
-    def _index_data(self, dataset):
-        """
-        Converts the dataset dictionary to a mappping between
-        classes in the data and the list of filenames and
-        a mapping between filenames and both their embeddings and masks
-        Args:
-            dataset(str): name of dataset
-        Returns:
-            - image_class_mapping, image_mask_embeddings(tuple)
-            - image_class_mapping(dictionary): keys are class, values are list of filenames in class
-            - image_mask_embeddings(tuple): keys are filenames, values are a tuple of embeddings
-                                     and masks for that image
-        """
-        data_dict = load_data(self._config, dataset, self._data_type)
-        image_class_mapping = collections.OrderedDict()
-        all_classes = []
-        image_mask_embeddings = {}
-        for i, fn in enumerate(data_dict["filenames"]):
-            class_name, _ = fn.split("_")
-            image_mask_embeddings[fn] = (data_dict["embeddings"][i], data_dict["masks"][i])
-            if class_name in list(image_class_mapping.keys()):
-                image_class_mapping[class_name].append(fn)
-                all_classes.append(class_name)
-            else:
-                image_class_mapping[class_name] = [fn]
-                all_classes.append(class_name)
+        num_classes = config.num_classes
+        n_train_per_class = config.n_train_per_class[self._data_type]
+        n_val_per_class = config.n_val_per_class[self._data_type]
+        batch_size = config.num_tasks[self._data_type]
 
-        total_files = sum([len(image_class_mapping[i]) for i in image_class_mapping])
-        error_msg = "Not all classes represented in the mapping"
-        assert set(image_class_mapping.keys()) - set(all_classes) == set(), error_msg
-        assert (len(data_dict["embeddings"]) == total_files == len(image_mask_embeddings))
-        return image_class_mapping, image_mask_embeddings
+        if batch_size > len(classes):
+            raise ValueError("number of tasks must be less than the number of available classes")
 
+        tr_imgs = []
+        tr_masks = []
+        val_imgs = []
+        val_masks = []
+        classes_selected = []
 
-class Datagenerator():
-    """Data Generator class"""
+        for i in range(batch_size):
+            selected_class = (np.random.choice(classes, num_classes, replace=False))[0]
+            classes_selected.append(selected_class)
+            classes = list(set(classes) - set([selected_class]))
+            tr_img_paths = []
+            tr_masks_paths = []
+            val_img_paths = []
+            val_masks_paths = []
 
-    def __init__(self, dataset, config, data_type):
-        self.data_type = data_type
-        self.config = config.data_params
-        self.dataset = MetaDataset(dataset, config, data_type)
-        self._data_loader = DataLoader(self.dataset, batch_size=None, shuffle=False, \
-                                       num_workers=0, collate_fn=self.collation_fn)
+            def loader(data_path):
+                paths_ = []
+                for sub_fn in os.listdir(data_path):
+                    sub_fn_path = os.path.join(data_path, sub_fn)
+                    for fn in os.listdir(sub_fn_path):
+                        paths_.append(os.path.join(sub_fn_path, fn))
+                return paths_
+
+            def data_path_assertions(data_path, img_or_mask, train_or_val):
+                temp = data_path.split(os.sep)
+                _train_or_val, _img_or_mask, _selected_class = temp[-4], temp[-3], temp[-2]
+                assert _train_or_val == train_or_val, "wrong data split (train or val)"
+                assert _img_or_mask == img_or_mask, "wrong data type (image or mask)"
+                assert _selected_class == selected_class, "wrong class (selected class)"
+                #print('_selected_class', _selected_class)
+                #print('selected_class', selected_class)
+            img_tr_path = os.path.join(train_root_path, "images")
+            img_datasets_train = datasets.DatasetFolder(root=img_tr_path, loader=loader(img_tr_path), extensions=".npy")
+            img_vl_path = os.path.join(val_root_path, "images")
+            img_datasets_val = datasets.DatasetFolder(root=img_vl_path, loader=loader(img_vl_path), extensions=".npy")
+            msk_tr_path = os.path.join(train_root_path, "masks")
+            mask_datasets_train = datasets.DatasetFolder(root=msk_tr_path, loader=loader(msk_tr_path),
+                                                         extensions=".npy")
+            msk_vl_path = os.path.join(val_root_path, "masks")
+            mask_datasets_val = datasets.DatasetFolder(root=msk_vl_path, loader=loader(msk_vl_path), extensions=".npy")
+
+            img_paths_train = [i for i in img_datasets_train.loader if selected_class in i]
+            random.shuffle(img_paths_train)
+            img_paths_train = list(np.random.choice(img_paths_train, n_train_per_class, replace=False))
+            data_path_assertions(img_paths_train[-1], "images", "train")
+
+            img_paths_val = [i for i in img_datasets_val.loader if selected_class in i]
+            random.shuffle(img_paths_val)
+            img_paths_val = list(np.random.choice(img_paths_val, n_val_per_class, replace=False))
+            data_path_assertions(img_paths_val[-1], "images", "val")
+
+            mask_paths_train = [i for i in mask_datasets_train.loader if selected_class in i]
+            random.shuffle(mask_paths_train)
+            mask_paths_train = list(np.random.choice(mask_paths_train, n_train_per_class, replace=False))
+            data_path_assertions(mask_paths_train[-1], "masks", "train")
+
+            mask_paths_val = [i for i in mask_datasets_val.loader if selected_class in i]
+            random.shuffle(mask_paths_val)
+            mask_paths_val = list(np.random.choice(mask_paths_val, n_val_per_class, replace=False))
+            data_path_assertions(mask_paths_val[-1], "masks", "val")
+
+            tr_img_paths.extend(img_paths_train)
+            tr_masks_paths.extend(mask_paths_train)
+            val_img_paths.extend(img_paths_val)
+            val_masks_paths.extend(mask_paths_val)
+
+            tr_imgs.append(np.array([load_npy(i) for i in tr_img_paths]))
+            tr_masks.append(np.array([load_npy(i) for i in tr_masks_paths]))
+            val_imgs.append(np.array([load_npy(i) for i in val_img_paths]))
+            val_masks.append(np.array([load_npy(i) for i in val_masks_paths]))
+
+        assert len(classes_selected) == len(set(classes_selected)), "classes are not unique"
+
+        return numpy_to_tensor(np.array(tr_imgs)), numpy_to_tensor(np.array(tr_masks)), \
+               numpy_to_tensor(np.array(val_imgs)), numpy_to_tensor(np.array(val_masks))
 
     def get_batch_data(self):
-        return next(iter(self._data_loader))
-
-    def collation_fn(self, data):
-        """
-        Collation function for data loader to generate train and val batch data
-        Args:
-            data (tuple): contains _all_class_images dict and _image_mask_embeddings
-
-        Returns:
-            A tuple of pytorch tensors:
-            DIMS = Image or Mask shape
-            - tr_data: (batch_size, num_classes, tr_size, DIMS): training image embeddings
-            - tr_masks: (batch_size, num_classes, tr_size, DIMS): training image masks
-            - val_data: (batch_size, num_classes, val_size, DIMS): validation image embeddings
-            - val_masks: (batch_size, num_classes, val_size, DIMS): validation image masks
-        """
-        num_tasks = self.config.num_tasks[self.data_type]
-        _all_class_images, _image_mask_embeddings = data
-        for i in range(num_tasks):
-            class_list = list(_all_class_images.keys())
-            tr_size = self.config.n_train_per_class[self.data_type]
-            val_size = self.config.n_val_per_class[self.data_type]
-            num_classes = self.config.num_classes
-            sample_count = (tr_size + val_size)
-            random.shuffle(class_list)
-            shuffled_list = class_list[:num_classes]
-            error_message = f"len(shuffled_list) {len(shuffled_list)} is not num_classes: {num_classes}"
-            assert len(shuffled_list) == num_classes, error_message
-            image_paths = []
-            for _, class_name in enumerate(shuffled_list):
-                all_images = _all_class_images[class_name]
-                all_images = np.random.choice(all_images, sample_count, replace=False)
-                error_message = f"{len(all_images)} == {sample_count} failed"
-                assert len(all_images) == sample_count, error_message
-                image_paths.append(all_images)
-
-            path_array = np.array(image_paths)
-            embedding_array = np.array([[_image_mask_embeddings[image_path][0]
-                                         for image_path in class_paths]
-                                        for class_paths in path_array])
-
-            mask_array = np.array([[_image_mask_embeddings[image_path][1]
-                                    for image_path in class_paths]
-                                   for class_paths in path_array])
-            if i == 0:
-                batch_embeddings = np.empty((num_tasks,) + embedding_array.shape)
-                batch_masks = np.empty((num_tasks,) + mask_array.shape)
-            batch_embeddings[i] = embedding_array
-            batch_masks[i] = mask_array
-
-        tr_data = batch_embeddings[:, :, :tr_size, :, :]
-        tr_data_masks = batch_masks[:, :, :tr_size, :, :]
-        val_data = batch_embeddings[:, :, tr_size:, :, :]
-        val_masks = batch_masks[:, :, tr_size:, :, :]
-        return numpy_to_tensor(tr_data), numpy_to_tensor(tr_data_masks), \
-               numpy_to_tensor(val_data), numpy_to_tensor(val_masks)
+        return self.__getitem__(0)
 
 
 class TrainingStats():
@@ -130,16 +127,26 @@ class TrainingStats():
         self._stats = []
         self.config = config
 
-    def update_stats(self, episode, loss, int_ov_union):
-        self._stats.append({
-            "episode": episode,
-            "loss": loss,
-            "int_ov_union": int_ov_union
-        })
+    def set_episode(self, episode):
         self.episode = episode
-        self.loss = loss
-        self.int_ov_union = int_ov_union
-        self.log_to_file()
+
+    def set_batch(self, batch):
+        self.batch = batch
+
+    def update_stats(self, **kwargs):
+        self.mode = kwargs["mode"]
+        self.kl_loss = kwargs["kl_loss"]
+        self.total_val_loss = kwargs["total_val_loss"]
+        self._stats.append({
+            "mode": self.mode,
+            "episode": self.episode,
+            "kl_loss": self.kl_loss,
+            "total_val_loss": self.total_val_loss
+        })
+        self.log_model_stats_to_file()
+
+    def update_inner_loop_stats(self, **kwargs):
+        pass
 
     def reset_stats(self):
         self._stats = []
@@ -150,13 +157,26 @@ class TrainingStats():
     def get_latest_stats(self):
         return self._stats[-1]
 
-    def log_to_file(self):
+    def log_inner_loop_stats_to_file(self):
+        pass
+
+    def log_model_stats_to_file(self):
         model_root = os.path.join(self.config.data_path, "models")
         model_dir = os.path.join(model_root, "experiment_{}" \
                                  .format(self.config.experiment.number))
 
         with open(os.path.join(model_dir, "model_log.txt"), "a") as f:
-            msg = f"\nepisode:{self.episode:03d}, loss:{self.loss:2f}, "
-            msg += f"iou:{self.int_ov_union:2f}"
+            msg = f"\nmode:{self.mode}, episode:{self.episode:03d}, kl_loss:{self.kl_loss:2f}, "
+            msg += f"total_val_loss:{self.total_val_loss:2f}"
             f.write(msg)
 
+    def get_stats(self):
+        return pd.DataFrame(self._stats)
+
+    def get_latest_stats(self):
+        return self._stats[-1]
+
+    def disp_stats(self):
+        msg = f"\nmode:{self.mode}, episode:{self.episode:03d}, kl_loss:{self.kl_loss:2f}, "
+        msg += f"total_val_loss:{self.total_val_loss:2f}"
+        print(msg)

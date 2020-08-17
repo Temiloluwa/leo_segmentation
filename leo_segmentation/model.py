@@ -58,10 +58,10 @@ class LEO(nn.Module):
         self.config = config
         self.mode = mode
         self.loss = nn.CrossEntropyLoss()
-        self.enc1 = _EncoderBlock(1, 32)
+        self.enc1 = _EncoderBlock(14, 32)
         self.enc2 = _EncoderBlock(32, 64, dropout=True)
         self.dec2 = _DecoderBlock(64, 32)
-        self.dec1 = _DecoderBlock(32, 1) #num of channels in decoder output must be equal to input
+        self.dec1 = _DecoderBlock(32, 14) #num of channels in decoder output must be equal to input
         self.RelationNetwork = RelationNetwork(128, 64)
 
     def encoder(self, embeddings):
@@ -257,7 +257,8 @@ class LEO(nn.Module):
         return kl
 
     def predict(self, inputs, weights):
-        inputs = inputs.unsqueeze(2) #num of channels is missing in sample data
+        #inputs = inputs.unsqueeze(2) #num of channels is missing in sample data
+        inputs = inputs.permute(1, 0, 4, 2, 3)
         #after_dropout = torch.nn.dropout(inputs, rate=self.dropout_rate)
         # This is 3-dimensional equivalent of a matrix product, where we sum over
         # the last (embedding_dim) dimension. We get [N, K, N, K, H, W] tensor as output.
