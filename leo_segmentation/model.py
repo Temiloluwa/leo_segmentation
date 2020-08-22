@@ -44,7 +44,7 @@ class LEO(nn.Module):
     """
     contains functions to perform latent embedding optimization
     """
-    def __init__(self, config, weights_shape, mode="meta_train"):
+    def __init__(self, config, mode="meta_train"):
         super(LEO, self).__init__()
         self.config = config
         self.device = torch.device("cuda:0" if torch.cuda.is_available() and config.use_gpu else "cpu")
@@ -53,9 +53,8 @@ class LEO(nn.Module):
         self.enc1 = _EncoderBlock(14, 32).to(self.device) 
         self.enc2 = _EncoderBlock(32, 32, dropout=True).to(self.device) 
         self.dec2 = _DecoderBlock(32, 32, 32, 32).to(self.device) 
-        self.dec1 = _DecoderBlock(32, 32, 32, 14).to(self.device)  
-        self.segnet = Segmodel(weights_shape).to(self.device) 
-
+        self.dec1 = _DecoderBlock(32, 32, 32, 28).to(self.device)  
+        
     def forward_encoder(self, inputs):
         o = self.enc1(inputs)
         o = self.enc2(o)
@@ -64,14 +63,21 @@ class LEO(nn.Module):
     def forward_decoder(self, inputs, latents, targets):
         o = self.dec2(latents)
         predicted_weights = self.dec1(o)
+        #average codes per class
+        predicted_weights = torch.unsqueeze(torch.mean(predicted_weights, 0), 0)
         inner_loss = self.calculate_inner_loss(inputs, targets, predicted_weights)
         return inner_loss, predicted_weights
        
 
     def calculate_inner_loss(self, inputs, targets, predicted_weights):
-        self.segnet.channel_zero_weight = nn.Parameter(predicted_weights, requires_grad=True)
-        self.segnet.channel_one_weight = nn.Parameter(predicted_weights, requires_grad=True)
-        pred = self.segnet(inputs).to(self.device)
+        channel_zero_bias = 0.0
+        channel_one_bias = 0.0
+        scale = 10.0
+        channel_zero = inputs * predicted_weights[:, :14, :, :]/scale + channel_zero_bias
+        channel_zero = torch.unsqueeze(torch.sum(channel_zero, dim=1), 1)
+        channel_one = inputs * predicted_weights[:, 14:, :, :]/scale + channel_one_bias
+        channel_one = torch.unsqueeze(torch.sum(channel_one, dim=1), 1)
+        pred =  torch.cat([channel_zero, channel_one], 1)
         hot_targets = one_hot_target(targets).to(self.device)
         hot_targets.requires_grad = True
         pred = softmax(pred)
@@ -93,15 +99,16 @@ class LEO(nn.Module):
         inner_lr = self.config.hyperparameters.inner_loop_lr
         latents.retain_grad()
         initial_latents = latents.clone()
+        #weights_shape = (1,) + inputs.shape[1:]
+        #self.segnet = Segmodel(weights_shape).to(self.device) 
         tr_loss, _  = self.forward_decoder(inputs, latents, target)
         print(tr_loss)
         
         for _ in range(self.config.hyperparameters.num_adaptation_steps):
-            tr_loss.backward()
-            grad = latents.grad
+            grad = torch.autograd.grad(tr_loss, latents, create_graph=True)[0]
             with torch.no_grad():
                 latents -= inner_lr * grad
-                latents.grad.zero()
+                #latents.grad.zero_()
             tr_loss, segmentation_weights = self.forward_decoder(inputs, latents, target)
         return tr_loss, segmentation_weights
 
@@ -117,12 +124,12 @@ class LEO(nn.Module):
         """
         finetuning_lr = self.config.hyperparameters.finetuning_lr
         for _ in range( self.config.hyperparameters.num_finetuning_steps):
-            grad_ = torch.autograd.grad(tr_loss, seg_weights)
+            grad_ = torch.autograd.grad(tr_loss, seg_weights)[0]
             with torch.no_grad():
                 seg_weights -= finetuning_lr * grad_
-            tr_loss = self.calculate_inner_loss(data.tr_data, seg_weights, data.tr_data_masks)
-        val_loss = self.calculate_inner_loss(data.val_data, seg_weights, data.val_data_masks)
-
+            tr_loss = self.calculate_inner_loss(data.tr_data, data.tr_data_masks, seg_weights)
+        val_loss = self.calculate_inner_loss(data.val_data, data.val_data_masks, seg_weights)
+        print(f"Train loss {tr_loss}, val loss {val_loss}")
         return val_loss
 
     def grads_and_vars(self, metatrain_loss):
@@ -153,7 +160,7 @@ class Segmodel(nn.Module):
         #self.scale = nn.Parameter(torch.tensor(10.0, requires_grad=True))
         self.channel_one_bias = 1.0
         self.channel_two_bias = 1.0
-        self.scale = 5.0
+        self.scale = 10.0
 
 
     def forward(self, x):
@@ -174,7 +181,7 @@ def calc_iou_per_class(pred_x, targets):
     return mean_iou_per_class
 
 def one_hot_target(mask, channel_dim=1):
-    mask_inv = (~torch.tensor([1,0,1,0]).type(torch.bool)).type(torch.float32)
+    mask_inv = (~mask.type(torch.bool)).type(torch.float32)
     channel_zero = torch.unsqueeze(mask_inv, channel_dim)
     channel_one = torch.unsqueeze(mask, channel_dim)
     return torch.cat((channel_zero, channel_one), axis=channel_dim)

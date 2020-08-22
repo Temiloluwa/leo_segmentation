@@ -37,7 +37,7 @@ def compute_loss(model, meta_dataloader, train_stats, config, mode="meta_train")
         display_data_shape(data_dict)
         latents = model.forward_encoder(data_dict.tr_data)
         tr_loss, adapted_seg_weights = model.leo_inner_loop(\
-                        data_dict.tr_data, latents, data_dict.tr_masks)
+                        data_dict.tr_data, latents, data_dict.tr_data_masks)
         val_loss = model.finetuning_inner_loop(data_dict, tr_loss, adapted_seg_weights)
         total_val_loss.append(val_loss)
     stats_data = {
@@ -83,13 +83,13 @@ def train_model(config):
 
         train_stats.disp_stats()
         #meta-val
-        dataloader = Datagenerator(dataset, config, data_type="meta_val")
-        _, train_stats = compute_loss(leo, dataloader, train_stats, config, mode="meta_val")
-        train_stats.disp_stats()
+        #dataloader = Datagenerator(config, dataset, data_type="meta_val", generate_new_metaclasses=False)
+        #_, train_stats = compute_loss(leo, dataloader, train_stats, config, mode="meta_val")
+        #train_stats.disp_stats()
 
-        dataloader = Datagenerator(dataset, config, data_type="meta_test")
-        _, train_stats = compute_loss(leo, dataloader ,train_stats, config, mode="meta_test")
-        train_stats.disp_stats()
+        #dataloader = Datagenerator(config, dataset, data_type="meta_test", generate_new_metaclasses=False)
+        #_, train_stats = compute_loss(leo, dataloader ,train_stats, config, mode="meta_test")
+        #train_stats.disp_stats()
         
 
 def predict_model(config):
