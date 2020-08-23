@@ -1,5 +1,4 @@
-from utils import load_config, check_experiment, load_model, save_model,\
-    display_data_shape,get_named_dict
+from utils import load_config, check_experiment, load_model, save_model, calc_iou_per_class
 from data import Datagenerator, TrainingStats
 from model import LEO
 from  torch.nn import MSELoss
@@ -8,46 +7,13 @@ import torch.optim as optim
 import argparse
 import torch 
 import torch.optim
+import gc
 
 
 parser = argparse.ArgumentParser(description='Specify train or inference dataset')
 parser.add_argument("-d", "--dataset", type=str, nargs=1, default="pascal_voc")
 args = parser.parse_args()
 dataset = args.dataset
-
-def compute_loss(model, meta_dataloader, train_stats, config, mode="meta_train"):
-    """
-    Computes the  outer loop loss
-
-    Args:
-        model (object) : leo model
-        meta_dataloader (object): Dataloader 
-        train_stats: (object): train stats objecdt
-        config (dict): config
-        mode (str): meta_train, meta_val or meta_test
-    Returns:
-        (tuple) total_val_loss (list), train_stats
-    """
-    metadata = meta_dataloader.get_batch_data()
-    num_tasks = len(metadata[0])
-    display_data_shape(metadata)
-    total_val_loss = []
-    for batch in range(num_tasks):
-        data_dict = get_named_dict(metadata, batch)
-        display_data_shape(data_dict)
-        latents = model.forward_encoder(data_dict.tr_data)
-        tr_loss, adapted_seg_weights = model.leo_inner_loop(\
-                        data_dict.tr_data, latents, data_dict.tr_data_masks)
-        val_loss = model.finetuning_inner_loop(data_dict, tr_loss, adapted_seg_weights)
-        total_val_loss.append(val_loss)
-    stats_data = {
-        "mode": mode,
-        "kl_loss": 0,
-        "total_val_loss":sum(total_val_loss)/len(total_val_loss)
-    }
-    train_stats.update_stats(**stats_data)
-    return total_val_loss, train_stats
-    
 
 def train_model(config):
     """Trains Model"""
@@ -71,17 +37,24 @@ def train_model(config):
     for episode in range(episodes_completed+1, episodes+1):
         train_stats.set_episode(episode)
         #meta-train
-        dataloader = Datagenerator(config, dataset, data_type="meta_train", generate_new_metaclasses=False)
-        metatrain_loss, train_stats = compute_loss(leo, dataloader, train_stats, config)
-        metatrain_loss = sum(metatrain_loss)/len(metatrain_loss)
+        dataloader = Datagenerator(config, dataset, train_stats, config, mode="meta_train")
+        metadata = dataloader.get_batch_data()
+        class_in_metadata = dataloader.classes_dict["meta_train"]
+        metatrain_loss, train_stats = leo.compute_loss(metadata, train_stats, config, mode="meta_train")
         optimizer.zero_grad()
         metatrain_loss.backward()
         optimizer.step()
 
         if episode % config.checkpoint_interval == 0:
             save_model(leo, optimizer, config, edict(train_stats.get_latest_stats()))
-
+        
+        leo.evaluate_val_data(metadata, class_in_metadata, train_stats)
         train_stats.disp_stats()
+        del metadata
+        gc.collect()
+        
+        torch.cuda.ipc_collect()
+        torch.cuda.empty_cache()
         #meta-val
         #dataloader = Datagenerator(config, dataset, data_type="meta_val", generate_new_metaclasses=False)
         #_, train_stats = compute_loss(leo, dataloader, train_stats, config, mode="meta_val")

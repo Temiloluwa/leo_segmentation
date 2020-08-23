@@ -3,7 +3,8 @@
 import torch
 from torch import nn
 import numpy as np
-from torch.distributions import Normal
+from utils import display_data_shape, get_named_dict, one_hot_target,\
+    softmax, sparse_crossentropy, calc_iou_per_class
 
 class _EncoderBlock(nn.Module):
     def __init__(self, in_channels, out_channels, \
@@ -47,13 +48,11 @@ class LEO(nn.Module):
     def __init__(self, config, mode="meta_train"):
         super(LEO, self).__init__()
         self.config = config
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() and config.use_gpu else "cpu")
         self.mode = mode
-        self.loss = nn.CrossEntropyLoss()
-        self.enc1 = _EncoderBlock(14, 32).to(self.device) 
-        self.enc2 = _EncoderBlock(32, 32, dropout=True).to(self.device) 
-        self.dec2 = _DecoderBlock(32, 32, 32, 32).to(self.device) 
-        self.dec1 = _DecoderBlock(32, 32, 32, 28).to(self.device)  
+        self.enc1 = _EncoderBlock(14, 32)
+        self.enc2 = _EncoderBlock(32, 32, dropout=True) 
+        self.dec2 = _DecoderBlock(32, 32, 32, 32)
+        self.dec1 = _DecoderBlock(32, 32, 32, 28)
         
     def forward_encoder(self, inputs):
         o = self.enc1(inputs)
@@ -65,24 +64,22 @@ class LEO(nn.Module):
         predicted_weights = self.dec1(o)
         #average codes per class
         predicted_weights = torch.unsqueeze(torch.mean(predicted_weights, 0), 0)
-        inner_loss = self.calculate_inner_loss(inputs, targets, predicted_weights)
-        return inner_loss, predicted_weights
+        inner_loss, pred = self.calculate_inner_loss(inputs, targets, predicted_weights)
+        return inner_loss, predicted_weights, pred
        
 
     def calculate_inner_loss(self, inputs, targets, predicted_weights):
-        channel_zero_bias = 0.0
-        channel_one_bias = 0.0
-        scale = 10.0
-        channel_zero = inputs * predicted_weights[:, :14, :, :]/scale + channel_zero_bias
-        channel_zero = torch.unsqueeze(torch.sum(channel_zero, dim=1), 1)
-        channel_one = inputs * predicted_weights[:, 14:, :, :]/scale + channel_one_bias
-        channel_one = torch.unsqueeze(torch.sum(channel_one, dim=1), 1)
+        channel_zero = inputs * predicted_weights[:, :14, :, :]
+        channel_zero = torch.unsqueeze(torch.mean(channel_zero, dim=1), 1)
+        channel_one = inputs * predicted_weights[:, 14:, :, :]/5.0
+        channel_one = torch.unsqueeze(torch.mean(channel_one, dim=1), 1)
         pred =  torch.cat([channel_zero, channel_one], 1)
-        hot_targets = one_hot_target(targets).to(self.device)
+        hot_targets = one_hot_target(targets)
         hot_targets.requires_grad = True
+        pred = torch.clamp(pred, -10, 3.0)
         pred = softmax(pred)
         loss = sparse_crossentropy(hot_targets, pred)
-        return loss
+        return loss, pred
         
 
     def leo_inner_loop(self, inputs, latents, target):
@@ -97,19 +94,14 @@ class LEO(nn.Module):
             segmentation_weights : shape(num_classes, num_eg_per_class, channels, H, W)
         """
         inner_lr = self.config.hyperparameters.inner_loop_lr
-        latents.retain_grad()
         initial_latents = latents.clone()
-        #weights_shape = (1,) + inputs.shape[1:]
-        #self.segnet = Segmodel(weights_shape).to(self.device) 
-        tr_loss, _  = self.forward_decoder(inputs, latents, target)
-        print(tr_loss)
+        tr_loss, _ , _ = self.forward_decoder(inputs, latents, target)
         
         for _ in range(self.config.hyperparameters.num_adaptation_steps):
-            grad = torch.autograd.grad(tr_loss, latents, create_graph=True)[0]
+            latents_grad = torch.autograd.grad(tr_loss, [latents], create_graph=False)[0]
             with torch.no_grad():
-                latents -= inner_lr * grad
-                #latents.grad.zero_()
-            tr_loss, segmentation_weights = self.forward_decoder(inputs, latents, target)
+                latents -= inner_lr * latents_grad
+            tr_loss, segmentation_weights, _ = self.forward_decoder(inputs, latents, target)
         return tr_loss, segmentation_weights
 
     def finetuning_inner_loop(self, data, tr_loss, seg_weights):
@@ -124,73 +116,54 @@ class LEO(nn.Module):
         """
         finetuning_lr = self.config.hyperparameters.finetuning_lr
         for _ in range( self.config.hyperparameters.num_finetuning_steps):
-            grad_ = torch.autograd.grad(tr_loss, seg_weights)[0]
+            seg_weights_grad = torch.autograd.grad(tr_loss, [seg_weights])[0]
             with torch.no_grad():
-                seg_weights -= finetuning_lr * grad_
-            tr_loss = self.calculate_inner_loss(data.tr_data, data.tr_data_masks, seg_weights)
-        val_loss = self.calculate_inner_loss(data.val_data, data.val_data_masks, seg_weights)
-        print(f"Train loss {tr_loss}, val loss {val_loss}")
+                seg_weights -= finetuning_lr * seg_weights_grad
+                #self.scale -= finetuning_lr * scale_grad
+            tr_loss, _ = self.calculate_inner_loss(data.tr_data, data.tr_data_masks, seg_weights)
+        val_loss, _ = self.calculate_inner_loss(data.val_data, data.val_data_masks, seg_weights)
         return val_loss
 
-    def grads_and_vars(self, metatrain_loss):
+    def compute_loss(self, metadata, train_stats, config, mode="meta_train"):
         """
-        this function retrieves current gradient values for (Encoder, Decoder, Relation Network) LEO
+        Computes the  outer loop loss
+
         Args:
-            metatrain_loss (tensor_oshape) : mean validation loss of LEO model for the entire data batches
+            model (object) : leo model
+            meta_dataloader (object): Dataloader 
+            train_stats: (object): train stats object
+            config (dict): config
+            mode (str): meta_train, meta_val or meta_test
         Returns:
-            metatrain_variables (object) : parameter list (Encoder, Decoder, Relation Network)
-            metatrain_gradients (tuple) : gradients of metatrain_variables w.r.t metatrain_loss
+            (tuple) total_val_loss (list), train_stats
         """
-        metatrain_variables = self.parameters()
-        metatrain_gradients = torch.autograd.grad(metatrain_loss, metatrain_variables, retain_graph=True)
-        #nan_loss_or_grad = torch.isnan(metatrain_loss)| torch.reduce([torch.reduce(torch.isnan(g))for g in metatrain_gradients])
-        return metatrain_gradients, metatrain_variables
+        num_tasks = len(metadata[0])
+        if train_stats.episode % config.display_stats_interval == 1:
+            display_data_shape(metadata)
+        total_val_loss = []
+        for batch in range(num_tasks):
+            data_dict = get_named_dict(metadata, batch)
+            latents = self.forward_encoder(data_dict.tr_data)
+            tr_loss, adapted_seg_weights = self.leo_inner_loop(\
+                            data_dict.tr_data, latents, data_dict.tr_data_masks)
+            val_loss = self.finetuning_inner_loop(data_dict, tr_loss, adapted_seg_weights)
+            total_val_loss.append(val_loss)
+            
+        total_val_loss = sum(total_val_loss)/len(total_val_loss)
+        stats_data = {
+            "mode": mode,
+            "kl_loss": 0,
+            "total_val_loss":total_val_loss
+        }
+        train_stats.update_stats(**stats_data)
+        return total_val_loss, train_stats
 
-class Segmodel(nn.Module):
-    def __init__(self, weight_shape):
-        super(Segmodel, self).__init__()
-        self.channel_zero_weight = nn.Parameter(torch.normal(torch.zeros(weight_shape), torch.ones(weight_shape)),\
-                                            requires_grad=True)
-        self.channel_one_weight = nn.Parameter(torch.normal(torch.zeros(weight_shape), torch.ones(weight_shape)),\
-                                            requires_grad=True)
-        #self.channel_one_bias = nn.Parameter(torch.normal(torch.zeros(weight_shape), torch.ones(weight_shape)),\
-        #                                   requires_grad=True)
-        #self.channel_two_bias = nn.Parameter(torch.normal(torch.zeros(weight_shape), torch.ones(weight_shape)),\
-        #                                    requires_grad=True)
-        #self.scale = nn.Parameter(torch.tensor(10.0, requires_grad=True))
-        self.channel_one_bias = 1.0
-        self.channel_two_bias = 1.0
-        self.scale = 10.0
 
-
-    def forward(self, x):
-        channel_zero = x * self.channel_zero_weight/self.scale + self.channel_one_bias
-        channel_zero = torch.unsqueeze(torch.sum(channel_zero, dim=1), 1)
-        channel_one = x * self.channel_one_weight/self.scale + self.channel_two_bias
-        channel_one = torch.unsqueeze(torch.sum(channel_one, dim=1), 1)
-        return torch.cat([channel_zero, channel_one], 1)
-
-def calc_iou_per_class(pred_x, targets):
-    iou_per_class = []
-    for i in range(len(pred_x)):
-        pred = np.argmax(pred_x[i].cpu().detach().numpy(), 0).astype(int)
-        target = targets[i].astype(int)
-        iou = np.sum(np.logical_and(target, pred))/np.sum(np.logical_or(target, pred))
-        iou_per_class.append(iou)
-        mean_iou_per_class = np.mean(iou_per_class)
-    return mean_iou_per_class
-
-def one_hot_target(mask, channel_dim=1):
-    mask_inv = (~mask.type(torch.bool)).type(torch.float32)
-    channel_zero = torch.unsqueeze(mask_inv, channel_dim)
-    channel_one = torch.unsqueeze(mask, channel_dim)
-    return torch.cat((channel_zero, channel_one), axis=channel_dim)
-
-def softmax(py_tensor, channel_dim=1):
-    py_tensor = torch.exp(py_tensor)
-    return  py_tensor/torch.unsqueeze(torch.sum(py_tensor, dim=channel_dim), channel_dim)
-
-def sparse_crossentropy(target, pred,  channel_dim=1, eps=1e-10):
-    pred += eps
-    loss = torch.sum(-1 * target * torch.log(pred), dim=channel_dim)
-    return torch.mean(loss)
+    def evaluate_val_data(self, metadata, classes, train_stats):
+        num_tasks = len(metadata[0])
+        for batch in range(num_tasks):
+            data_dict = get_named_dict(metadata, batch)
+            latents = self.forward_encoder(data_dict.val_data)
+            _, _, predictions = self.forward_decoder(data_dict.val_data, latents, data_dict.val_data_masks)
+            iou = calc_iou_per_class(predictions, data_dict.val_data_masks)
+            print(f"Class: {classes[batch]}, Episode: {train_stats.episode}, Val IOU: {iou}")

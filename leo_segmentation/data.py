@@ -107,8 +107,8 @@ class Datagenerator(Dataset):
 
         assert len(classes_selected) == len(set(classes_selected)), "classes are not unique"
 
-        return numpy_to_tensor(np.array(tr_imgs)), numpy_to_tensor(np.array(tr_masks)),\
-               numpy_to_tensor(np.array(val_imgs)), numpy_to_tensor(np.array(val_masks))
+        return numpy_to_tensor(np.squeeze(np.array(tr_imgs))), numpy_to_tensor(np.squeeze(np.array(tr_masks))),\
+               numpy_to_tensor(np.squeeze(np.array(val_imgs))), numpy_to_tensor(np.squeeze(np.array(val_masks)))
 
     def get_batch_data(self):
         return self.__getitem__(0)

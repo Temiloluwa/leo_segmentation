@@ -1,7 +1,8 @@
 {
     "train":true,
-    "use_gpu":false,
-    "checkpoint_interval":1,
+    "use_gpu":true,
+    "checkpoint_interval":5,
+    "display_stats_interval":10,
     "dtype":"float32",
     "data_path":"data",
     "datasets":["pascal_voc", "sample_data", "fss1000"],
@@ -15,13 +16,13 @@
     },
     "experiment":{"number":1, "episode":1, "description":"first_model", "prompt_deletion":false},
     "hyperparameters":{
-        "outer_loop_lr":1e-3,
-        "inner_loop_lr":1e-3,
-        "finetuning_lr":1e-3,
+        "outer_loop_lr":1e-1,
+        "inner_loop_lr":1e-1,
+        "finetuning_lr":1e-1,
         "dropout_rate":0.2,
         "num_latents":5,
-        "num_finetuning_steps":2,
+        "num_finetuning_steps":5,
         "num_adaptation_steps":5,
-        "episodes":7
+        "episodes":50
     }
 }

@@ -236,16 +236,14 @@ def save_model(model, optimizer, config, stats):
 
 def prepare_inputs(data):
     """
-    Reshape the data for the model
+    change the channel dimension for data
     Args:
-        data (tensor): 
+        data (tensor): (num_examples_per_class, height, width, channels)
     Returns:
-        data (tensor): (total_num_eg, Channel, H, W)
+        data (tensor): (num_examples_per_class, channels, height, width)
     """
-    old_shape = data.size()
-    new_shape = tuple([i for i in old_shape if i != 1])
-    data = torch.reshape(data, new_shape)
-    if len(new_shape) == 4:
+  
+    if len(data.shape) == 4:
         data = data.permute((0, 3, 1, 2))
     return data
 
@@ -282,5 +280,28 @@ def log_data(msg, log_filename):
     with open(log_filename, mode_) as f:
         f.write(msg)
 
+def calc_iou_per_class(pred_x, targets):
+    """Calculates iou"""
+    iou_per_class = []
+    for i in range(len(pred_x)):
+        pred = np.argmax(pred_x[i].cpu().detach().numpy(), 0).astype(int)
+        target = targets[i].cpu().detach().numpy().astype(int)
+        iou = np.sum(np.logical_and(target, pred))/np.sum(np.logical_or(target, pred))
+        iou_per_class.append(iou)
+        mean_iou_per_class = np.mean(iou_per_class)
+    return mean_iou_per_class
 
-    
+def one_hot_target(mask, channel_dim=1):
+    mask_inv = (~mask.type(torch.bool)).type(torch.float32)
+    channel_zero = torch.unsqueeze(mask_inv, channel_dim)
+    channel_one = torch.unsqueeze(mask, channel_dim)
+    return torch.cat((channel_zero, channel_one), axis=channel_dim)
+
+def softmax(py_tensor, channel_dim=1):
+    py_tensor = torch.exp(py_tensor)
+    return  py_tensor/torch.unsqueeze(torch.sum(py_tensor, dim=channel_dim), channel_dim)
+
+def sparse_crossentropy(target, pred,  channel_dim=1, eps=1e-10):
+    pred += eps
+    loss = torch.sum(-1 * target * torch.log(pred), dim=channel_dim)
+    return torch.mean(loss)
