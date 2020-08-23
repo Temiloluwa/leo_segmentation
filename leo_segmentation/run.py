@@ -9,10 +9,12 @@ import torch
 import torch.optim
 import gc
 
-parser = argparse.ArgumentParser(description='Specify train or inference dataset')
-parser.add_argument("-d", "--dataset", type=str, nargs=1, default="pascal_voc")
-args = parser.parse_args()
-dataset = args.dataset
+#parser = argparse.ArgumentParser(description='Specify train or inference dataset')
+#parser.add_argument("-d", "--dataset", type=str, nargs=1, default="pascal_voc")
+#args = parser.parse_args()
+#dataset = args.dataset
+
+dataset = "pascal_voc"
 
 def train_model(config):
     """Trains Model"""
@@ -48,11 +50,14 @@ def train_model(config):
         
         leo.evaluate_val_data(metadata, class_in_metadata, train_stats)
         train_stats.disp_stats()
+        if episode == 3:
+            return leo, metadata
         del metadata
         gc.collect()
 
         torch.cuda.ipc_collect()
         torch.cuda.empty_cache()
+        
         #meta-val
         #dataloader = Datagenerator(config, dataset, data_type="meta_val", generate_new_metaclasses=False)
         #_, train_stats = compute_loss(leo, dataloader, train_stats, config, mode="meta_val")

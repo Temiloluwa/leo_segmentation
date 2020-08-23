@@ -257,9 +257,9 @@ def load_model(config):
     
     checkpoints = os.listdir(model_dir)
     checkpoints.pop()
-    max_cp = max([int(cp[11]) for cp in checkpoints])
+    max_cp = max([int(cp.split(".")[0].split("_")[1]) for cp in checkpoints])
     #if experiment.episode == -1, load latest checkpoint
-    episode = max_cp if experiment.episode == -1 else experiment.episode
+    episode = experiment.episode if experiment.episode == -1 else max_cp
     checkpoint_path = os.path.join(model_dir, f"checkpoint_{episode}.pth.tar")
     checkpoint = torch.load(checkpoint_path)
 
