@@ -1,14 +1,13 @@
-from utils import load_config, check_experiment, load_model, save_model, calc_iou_per_class
 from data import Datagenerator, TrainingStats
-from model import LEO
+from model import LEO, load_model, save_model
 from  torch.nn import MSELoss
 from easydict import EasyDict as edict
+from utils import load_config, check_experiment
 import torch.optim as optim
 import argparse
 import torch 
 import torch.optim
 import gc
-
 
 parser = argparse.ArgumentParser(description='Specify train or inference dataset')
 parser.add_argument("-d", "--dataset", type=str, nargs=1, default="pascal_voc")
@@ -36,8 +35,7 @@ def train_model(config):
 
     for episode in range(episodes_completed+1, episodes+1):
         train_stats.set_episode(episode)
-        #meta-train
-        dataloader = Datagenerator(config, dataset, train_stats, config, mode="meta_train")
+        dataloader = Datagenerator(config, dataset, data_type="meta_train")
         metadata = dataloader.get_batch_data()
         class_in_metadata = dataloader.classes_dict["meta_train"]
         metatrain_loss, train_stats = leo.compute_loss(metadata, train_stats, config, mode="meta_train")
@@ -52,7 +50,7 @@ def train_model(config):
         train_stats.disp_stats()
         del metadata
         gc.collect()
-        
+
         torch.cuda.ipc_collect()
         torch.cuda.empty_cache()
         #meta-val
