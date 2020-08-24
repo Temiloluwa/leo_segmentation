@@ -167,8 +167,10 @@ class LEO(nn.Module):
         for batch in range(num_tasks):
             data_dict = get_named_dict(metadata, batch)
             latents, kl_loss = self.forward_encoder(data_dict.tr_data)
+            
             tr_loss, adapted_seg_weights = self.leo_inner_loop(\
                             data_dict.tr_data, latents, data_dict.tr_data_masks)
+
             val_loss = self.finetuning_inner_loop(data_dict, tr_loss, adapted_seg_weights)
             total_val_loss.append(val_loss)
             kl_loss = kl_loss * self.config.hyperparameters.kl_weight

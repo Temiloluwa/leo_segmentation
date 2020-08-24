@@ -100,11 +100,21 @@ def check_experiment(config):
     model_root = os.path.join(config.data_path, "models")
     model_dir = os.path.join(model_root, "experiment_{}" \
                              .format(experiment.number))
+    def create_log():
+        if not os.path.exists(model_dir):
+            os.makedirs(model_dir, exist_ok=True)
+        msg = f"*********************Experiment {experiment.number}********************\n"
+        msg += f"Description: {experiment.description}"
+        log_filename = os.path.join(model_dir, "model_log.txt")
+        log_data(msg, log_filename)
+        return 
+
     if not os.path.exists(model_root):
         os.makedirs(model_root, exist_ok=True)
     existing_models = os.listdir(model_root)
     checkpoint_paths = os.path.join(model_root, f"experiment_{experiment.number}")
     if not os.path.exists(checkpoint_paths):
+        create_log()
         return None
     existing_checkpoints = os.listdir(checkpoint_paths)
 
@@ -112,12 +122,8 @@ def check_experiment(config):
         f"checkpoint_{experiment.episode}.pth.tar" in existing_checkpoints:
             return True
     else:
-        if not os.path.exists(model_dir):
-            os.makedirs(model_dir, exist_ok=True)
-        msg = f"*********************Experiment {experiment.number}********************\n"
-        msg += f"Description: {experiment.description}"
-        log_filename = os.path.join(model_dir, "model_log.txt")
-        log_data(msg, log_filename)
+        
+        create_log()
         return None
 
 def prepare_inputs(data):
