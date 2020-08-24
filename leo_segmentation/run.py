@@ -39,7 +39,7 @@ def train_model(config):
         train_stats.set_episode(episode)
         dataloader = Datagenerator(config, dataset, data_type="meta_train")
         metadata = dataloader.get_batch_data()
-        class_in_metadata = dataloader.classes_dict["meta_train"]
+        class_in_metadata = metadata[-1]
         metatrain_loss, train_stats = leo.compute_loss(metadata, train_stats, config, mode="meta_train")
         optimizer.zero_grad()
         metatrain_loss.backward()
@@ -51,7 +51,7 @@ def train_model(config):
         leo.evaluate_val_data(metadata, class_in_metadata, train_stats)
         train_stats.disp_stats()
         if episode == 3:
-            return leo, metadata
+            return leo, metadata, class_in_metadata
         del metadata
         gc.collect()
 

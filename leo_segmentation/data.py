@@ -50,7 +50,6 @@ class Datagenerator(Dataset):
             val_img_paths = []
             val_masks_paths = []
             
-            
             def loader(data_path):
                 paths_ = []
                 for sub_fn in os.listdir(data_path):
@@ -108,7 +107,8 @@ class Datagenerator(Dataset):
         assert len(classes_selected) == len(set(classes_selected)), "classes are not unique"
 
         return numpy_to_tensor(np.squeeze(np.array(tr_imgs))), numpy_to_tensor(np.squeeze(np.array(tr_masks))),\
-               numpy_to_tensor(np.squeeze(np.array(val_imgs))), numpy_to_tensor(np.squeeze(np.array(val_masks)))
+               numpy_to_tensor(np.squeeze(np.array(val_imgs))), numpy_to_tensor(np.squeeze(np.array(val_masks))),\
+               classes_selected
 
     def get_batch_data(self):
         return self.__getitem__(0)

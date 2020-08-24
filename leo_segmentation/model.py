@@ -2,45 +2,25 @@
 # Computational graph creation
 import torch, os
 from torch import nn
+from torch.distributions import Normal
 import numpy as np
 from utils import display_data_shape, get_named_dict, one_hot_target,\
     softmax, sparse_crossentropy, calc_iou_per_class, log_data, load_config
     
+class Flatten(nn.Module):
+  def __init__(self):
+    super(Flatten, self).__init__()
 
-class _EncoderBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, \
-                kernel_size=3, stride=2, padding=1, \
-                dropout=False):
-        super(_EncoderBlock, self).__init__()
-        layers = [
-            nn.Conv2d(in_channels, out_channels, kernel_size,\
-                stride, padding),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=False),
-        ]
-        if dropout:
-            layers.append(nn.Dropout(inplace=False))
-        self.encode = nn.Sequential(*layers)
+  def forward(self, x):
+    return torch.reshape(x, (x.shape[0], -1))
 
-    def forward(self, x):
-        return self.encode(x)
+class Reshape(nn.Module):
+  def __init__(self, dims):
+    super(Reshape, self).__init__()
+    self.dims = dims
 
-class _DecoderBlock(nn.Module):
-    def __init__(self, conv_tr_in_channels, conv_tr_out_channels, \
-                       in_channels, out_channels, kernel_size=4,dropout=False):
-        super(_DecoderBlock, self).__init__()
-        self.decode = nn.Sequential(
-                    nn.ConvTranspose2d(in_channels=conv_tr_in_channels,
-                                    out_channels=conv_tr_out_channels,
-                                    kernel_size=kernel_size, stride=2,\
-                                    padding=1),
-                    nn.Conv2d(in_channels, out_channels, kernel_size=3,\
-                        stride=1, padding=1),
-                    nn.BatchNorm2d(out_channels),
-                    nn.ReLU(inplace=False))
-
-    def forward(self, x):
-        return self.decode(x)
+  def forward(self, x):
+    return x.view(self.dims)
 
 class LEO(nn.Module):
     """
@@ -50,31 +30,73 @@ class LEO(nn.Module):
         super(LEO, self).__init__()
         self.config = config
         self.mode = mode
-        self.enc1 = _EncoderBlock(14, 32)
-        self.enc2 = _EncoderBlock(32, 32, dropout=True) 
-        self.dec2 = _DecoderBlock(32, 32, 32, 32)
-        self.dec1 = _DecoderBlock(32, 32, 32, 28)
+        self.latent_size = 200
+        self.dense_input_shape = (28, 192, 256)
+        self.encoder = self.encoder_block(14, 28, dropout=True)
+        self.decoder = self.decoder_block(28, 28, 28, 28, dropout=False)
+        self.device  = torch.device("cuda:0" if torch.cuda.is_available() and config.use_gpu else "cpu")
         
-    def forward_encoder(self, inputs):
-        o = self.enc1(inputs)
-        o = self.enc2(o)
-        return o
+    def encoder_block(self, in_channels, out_channels, dropout=False):
+        layers = [nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=2, padding=1),
+                  nn.BatchNorm2d(out_channels),
+                  nn.ReLU(inplace=True)]
+        if dropout:
+            layers.append(nn.Dropout(inplace=True))
+        
+        layers.extend([Flatten(), nn.Linear(int(np.prod(self.dense_input_shape)), 2*self.latent_size)])
+        
+        return nn.Sequential(*layers)
 
+    def decoder_block(self, conv_tr_in_channels, conv_tr_out_channels, \
+            in_channels, out_channels, dropout=False):
+        layers = [  nn.Linear(self.latent_size, int(np.prod(self.dense_input_shape))),
+                    nn.ReLU(True),
+                    Reshape((-1,) + self.dense_input_shape),
+                    nn.ConvTranspose2d(in_channels=conv_tr_in_channels,
+                                    out_channels=conv_tr_out_channels,
+                                    kernel_size=4, stride=2,\
+                                    padding=1),
+                    nn.Conv2d(in_channels, out_channels, kernel_size=3,\
+                        stride=1, padding=1),
+                    nn.BatchNorm2d(out_channels),
+                    nn.ReLU(inplace=False)]
+        if dropout:
+            layers.append(nn.Dropout(inplace=False))
+    
+        return nn.Sequential(*layers)
+
+    def forward_encoder(self, inputs):
+        o = self.encoder(inputs)
+        latents, mean, logvar = self.sample_latents(o)
+        kl_loss =  -0.5 * torch.mean(logvar - mean.pow(2) - logvar.exp() + 1, dim=1)
+        return latents, kl_loss
+        
     def forward_decoder(self, inputs, latents, targets):
-        o = self.dec2(latents)
-        predicted_weights = self.dec1(o)
+        predicted_weights = self.decoder(latents)
         #average codes per class
         predicted_weights = torch.unsqueeze(torch.mean(predicted_weights, 0), 0)
         inner_loss, pred = self.calculate_inner_loss(inputs, targets, predicted_weights)
         return inner_loss, predicted_weights, pred
+        
+    def sample_latents(self, encoder_output):
+        split_size = int(encoder_output.shape[1]/2)
+        splits = [split_size, split_size]
+        self.mean, self.logvar = torch.split(encoder_output, splits, dim=1)
+        eps_dist = Normal(torch.zeros(self.mean.size()), torch.ones(self.logvar.size()))
+        self.eps = eps_dist.sample().to(self.device)
+        self.latents = self.eps * self.logvar + self.mean
+        return self.latents, self.mean, self.logvar
        
-
-    def calculate_inner_loss(self, inputs, targets, predicted_weights):
+    def seg_network(self, inputs, predicted_weights):
         channel_zero = inputs * predicted_weights[:, :14, :, :]
         channel_zero = torch.unsqueeze(torch.mean(channel_zero, dim=1), 1)
-        channel_one = inputs * predicted_weights[:, 14:, :, :]/5.0
+        channel_one = inputs * predicted_weights[:, 14:, :, :]
         channel_one = torch.unsqueeze(torch.mean(channel_one, dim=1), 1)
         pred =  torch.cat([channel_zero, channel_one], 1)
+        return pred
+
+    def calculate_inner_loss(self, inputs, targets, predicted_weights):
+        pred = self.seg_network(inputs, predicted_weights)
         hot_targets = one_hot_target(targets)
         hot_targets.requires_grad = True
         pred = torch.clamp(pred, -10, 3.0)
@@ -82,7 +104,6 @@ class LEO(nn.Module):
         loss = sparse_crossentropy(hot_targets, pred)
         return loss, pred
         
-
     def leo_inner_loop(self, inputs, latents, target):
         """
         This function does "latent code optimization" that is back propagation  until latent codes and
@@ -120,7 +141,6 @@ class LEO(nn.Module):
             seg_weights_grad = torch.autograd.grad(tr_loss, [seg_weights])[0]
             with torch.no_grad():
                 seg_weights -= finetuning_lr * seg_weights_grad
-                #self.scale -= finetuning_lr * scale_grad
             tr_loss, _ = self.calculate_inner_loss(data.tr_data, data.tr_data_masks, seg_weights)
         val_loss, _ = self.calculate_inner_loss(data.val_data, data.val_data_masks, seg_weights)
         return val_loss
@@ -142,22 +162,27 @@ class LEO(nn.Module):
         if train_stats.episode % config.display_stats_interval == 1:
             display_data_shape(metadata)
         total_val_loss = []
+        kl_losses = []
         for batch in range(num_tasks):
             data_dict = get_named_dict(metadata, batch)
-            latents = self.forward_encoder(data_dict.tr_data)
+            latents, kl_loss = self.forward_encoder(data_dict.tr_data)
             tr_loss, adapted_seg_weights = self.leo_inner_loop(\
                             data_dict.tr_data, latents, data_dict.tr_data_masks)
             val_loss = self.finetuning_inner_loop(data_dict, tr_loss, adapted_seg_weights)
             total_val_loss.append(val_loss)
+            kl_loss = kl_loss * self.config.hyperparameters.kl_weight
+            kl_losses.append(kl_loss)
             
         total_val_loss = sum(total_val_loss)/len(total_val_loss)
+        total_kl_loss = sum(kl_losses)/len(kl_losses)
+        total_loss = total_val_loss + total_kl_loss
         stats_data = {
             "mode": mode,
-            "kl_loss": 0,
+            "kl_loss": total_kl_loss,
             "total_val_loss":total_val_loss
         }
         train_stats.update_stats(**stats_data)
-        return total_val_loss, train_stats
+        return total_loss, train_stats
 
 
     def evaluate_val_data(self, metadata, classes, train_stats):
@@ -283,3 +308,4 @@ def load_model(config):
         }
 
     return leo, optimizer, stats
+

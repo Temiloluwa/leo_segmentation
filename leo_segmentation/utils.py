@@ -133,7 +133,7 @@ def prepare_inputs(data):
 
 def get_named_dict(metadata, batch):
     """Returns a named dict"""
-    tr_data, tr_data_masks, val_data, val_masks = metadata
+    tr_data, tr_data_masks, val_data, val_masks, _ = metadata
     data_dict = { 'tr_data': prepare_inputs(tr_data[batch]),
                   'tr_data_masks': prepare_inputs(tr_data_masks[batch]) ,
                   'val_data':  prepare_inputs(val_data[batch]),
@@ -144,7 +144,7 @@ def get_named_dict(metadata, batch):
 def display_data_shape(metadata):
     """Displays data shape"""
     if type(metadata) == tuple:
-        tr_data, tr_data_masks, val_data, val_masks = metadata
+        tr_data, tr_data_masks, val_data, val_masks, _ = metadata
         print(f"num tasks: {len(tr_data)}")
     else:
         tr_data, tr_data_masks, val_data, val_masks = metadata.tr_data,\
