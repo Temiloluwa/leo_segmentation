@@ -103,7 +103,10 @@ def check_experiment(config):
     if not os.path.exists(model_root):
         os.makedirs(model_root, exist_ok=True)
     existing_models = os.listdir(model_root)
-    existing_checkpoints = os.listdir(os.path.join(model_root, f"experiment_{experiment.number}"))
+    checkpoint_paths = os.path.join(model_root, f"experiment_{experiment.number}")
+    if not os.path.exists(checkpoint_paths):
+        return None
+    existing_checkpoints = os.listdir(checkpoint_paths)
 
     if f"experiment_{experiment.number}" in existing_models and \
         f"checkpoint_{experiment.episode}.pth.tar" in existing_checkpoints:

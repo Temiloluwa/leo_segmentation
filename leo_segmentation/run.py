@@ -50,6 +50,8 @@ def train_model(config):
         
         leo.evaluate_val_data(metadata, class_in_metadata, train_stats)
         train_stats.disp_stats()
+        if episode == 1:
+            return leo, meta_data, classes
         del metadata
         gc.collect()
 

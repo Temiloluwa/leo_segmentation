@@ -69,11 +69,7 @@ class Datagenerator(Dataset):
             img_datasets_train = datasets.DatasetFolder(root=img_tr_path, loader=loader(img_tr_path), extensions=".npy")
             img_vl_path = os.path.join(val_root_path, "images")
             img_datasets_val = datasets.DatasetFolder(root=img_vl_path, loader=loader(img_vl_path), extensions=".npy")
-            msk_tr_path = os.path.join(train_root_path, "masks")
-            mask_datasets_train = datasets.DatasetFolder(root=msk_tr_path, loader=loader(msk_tr_path), extensions=".npy")
-            msk_vl_path = os.path.join(val_root_path, "masks")
-            mask_datasets_val = datasets.DatasetFolder(root=msk_vl_path , loader=loader(msk_vl_path ), extensions=".npy")
-
+            
             img_paths_train = [i for i in img_datasets_train.loader if selected_class in i]
             random.shuffle(img_paths_train)
             img_paths_train = list(np.random.choice(img_paths_train, n_train_per_class, replace=False))
