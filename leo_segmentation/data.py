@@ -84,15 +84,8 @@ class Datagenerator(Dataset):
             img_paths_val = list(np.random.choice(img_paths_val, n_val_per_class, replace=False))
             data_path_assertions(img_paths_val[-1], "images", "val")
 
-            mask_paths_train = [i for i in mask_datasets_train.loader if selected_class in i]
-            random.shuffle(mask_paths_train)
-            mask_paths_train = list(np.random.choice(mask_paths_train, n_train_per_class, replace=False))
-            data_path_assertions(mask_paths_train[-1], "masks", "train")
-
-            mask_paths_val = [i for i in mask_datasets_val.loader if selected_class in i]
-            random.shuffle(mask_paths_val)
-            mask_paths_val = list(np.random.choice(mask_paths_val, n_val_per_class, replace=False))
-            data_path_assertions(mask_paths_val[-1], "masks", "val")
+            mask_paths_train = [i.replace("images", "masks") for i in img_paths_train]
+            mask_paths_val = [i.replace("images", "masks") for i in img_paths_val]
             
             tr_img_paths.extend(img_paths_train)
             tr_masks_paths.extend(mask_paths_train)
