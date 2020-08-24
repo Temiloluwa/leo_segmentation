@@ -39,9 +39,9 @@ class LEO(nn.Module):
     def encoder_block(self, in_channels, out_channels, dropout=False):
         layers = [nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=2, padding=1),
                   nn.BatchNorm2d(out_channels),
-                  nn.ReLU(inplace=True)]
+                  nn.ReLU(inplace=False)]
         if dropout:
-            layers.append(nn.Dropout(inplace=True))
+            layers.append(nn.Dropout(inplace=False))
         
         layers.extend([Flatten(), nn.Linear(int(np.prod(self.dense_input_shape)), 2*self.latent_size)])
         
@@ -68,8 +68,9 @@ class LEO(nn.Module):
     def forward_encoder(self, inputs):
         o = self.encoder(inputs)
         latents, mean, logvar = self.sample_latents(o)
+        self.latents, self.mean, self.logvar = latents, mean, logvar
         kl_loss =  -0.5 * torch.mean(logvar - mean.pow(2) - logvar.exp() + 1, dim=1)
-        return latents, kl_loss
+        return latents, torch.mean(kl_loss)
         
     def forward_decoder(self, inputs, latents, targets):
         predicted_weights = self.decoder(latents)
@@ -81,11 +82,11 @@ class LEO(nn.Module):
     def sample_latents(self, encoder_output):
         split_size = int(encoder_output.shape[1]/2)
         splits = [split_size, split_size]
-        self.mean, self.logvar = torch.split(encoder_output, splits, dim=1)
-        eps_dist = Normal(torch.zeros(self.mean.size()), torch.ones(self.logvar.size()))
-        self.eps = eps_dist.sample().to(self.device)
-        self.latents = self.eps * self.logvar + self.mean
-        return self.latents, self.mean, self.logvar
+        mean, logvar = torch.split(encoder_output, splits, dim=1)
+        eps_dist = Normal(torch.zeros(mean.size()), torch.ones(logvar.size()))
+        eps = eps_dist.sample().to(self.device)
+        latents = eps * logvar + mean
+        return latents, mean, logvar
        
     def seg_network(self, inputs, predicted_weights):
         channel_zero = inputs * predicted_weights[:, :14, :, :]
@@ -189,7 +190,7 @@ class LEO(nn.Module):
         num_tasks = len(metadata[0])
         for batch in range(num_tasks):
             data_dict = get_named_dict(metadata, batch)
-            latents = self.forward_encoder(data_dict.val_data)
+            latents, _ = self.forward_encoder(data_dict.val_data)
             _, _, predictions = self.forward_decoder(data_dict.val_data, latents, data_dict.val_data_masks)
             iou = calc_iou_per_class(predictions, data_dict.val_data_masks)
             print(f"Class: {classes[batch]}, Episode: {train_stats.episode}, Val IOU: {iou}")
