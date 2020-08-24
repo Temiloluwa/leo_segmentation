@@ -107,6 +107,9 @@ def check_experiment(config):
         msg += f"Description: {experiment.description}"
         log_filename = os.path.join(model_dir, "model_log.txt")
         log_data(msg, log_filename)
+        log_filename = os.path.join(model_dir, "val_stats_log.txt")
+        msg = "*******************Val stats *************"
+        log_data(msg, log_filename)
         return 
 
     if not os.path.exists(model_root):

@@ -30,7 +30,7 @@ class LEO(nn.Module):
         super(LEO, self).__init__()
         self.config = config
         self.mode = mode
-        self.latent_size = 200
+        self.latent_size = config.hyperparameters.num_latents
         self.dense_input_shape = (28, 192, 256)
         self.encoder = self.encoder_block(14, 28, dropout=True)
         self.decoder = self.decoder_block(28, 28, 28, 28, dropout=False)
@@ -167,7 +167,7 @@ class LEO(nn.Module):
         for batch in range(num_tasks):
             data_dict = get_named_dict(metadata, batch)
             latents, kl_loss = self.forward_encoder(data_dict.tr_data)
-            
+
             tr_loss, adapted_seg_weights = self.leo_inner_loop(\
                             data_dict.tr_data, latents, data_dict.tr_data_masks)
 
@@ -189,13 +189,19 @@ class LEO(nn.Module):
 
 
     def evaluate_val_data(self, metadata, classes, train_stats):
+        log_msg = ""
         num_tasks = len(metadata[0])
         for batch in range(num_tasks):
             data_dict = get_named_dict(metadata, batch)
             latents, _ = self.forward_encoder(data_dict.val_data)
             _, _, predictions = self.forward_decoder(data_dict.val_data, latents, data_dict.val_data_masks)
             iou = calc_iou_per_class(predictions, data_dict.val_data_masks)
-            print(f"Class: {classes[batch]}, Episode: {train_stats.episode}, Val IOU: {iou}")
+            batch_msg = f"\nClass: {classes[batch]}, Episode: {train_stats.episode}, Val IOU: {iou}"
+            print(batch_msg[1:])
+            log_msg += batch_msg
+        log_filename = os.path.join(os.path.dirname(__file__), "data", "models",\
+                         f"experiment_{self.config.experiment.number}", "val_stats_log.txt")
+        log_data(log_msg, log_filename)
 
 
 def save_model(model, optimizer, config, stats):
