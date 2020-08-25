@@ -1,7 +1,7 @@
 {
     "train":true,
     "use_gpu":false,
-    "checkpoint_interval":20,
+    "checkpoint_interval":10,
     "display_stats_interval":10,
     "dtype":"float32",
     "data_path":"data",
@@ -23,6 +23,6 @@
         "num_latents":200,
         "num_finetuning_steps":5,
         "num_adaptation_steps":5,
-        "episodes":100
+        "episodes":66
     }
 }

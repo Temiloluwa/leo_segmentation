@@ -37,7 +37,7 @@ def train_model(config):
 
     for episode in range(episodes_completed+1, episodes+1):
         train_stats.set_episode(episode)
-        dataloader = Datagenerator(config, dataset, data_type="meta_train")
+        dataloader = Datagenerator(config, dataset, data_type="meta_test")
         metadata = dataloader.get_batch_data()
         class_in_metadata = metadata[-1]
         metatrain_loss, train_stats = leo.compute_loss(metadata, train_stats, config, mode="meta_train")

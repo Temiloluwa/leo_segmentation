@@ -50,12 +50,11 @@ class Datagenerator(Dataset):
             val_img_paths = []
             val_masks_paths = []
             
-            def loader(data_path):
+            def loader(data_path, selected_class):
                 paths_ = []
-                for sub_fn in os.listdir(data_path):
-                    sub_fn_path = os.path.join(data_path, sub_fn)
-                    for fn in os.listdir(sub_fn_path):
-                        paths_.append(os.path.join(sub_fn_path, fn))
+                sub_fn_path = os.path.join(data_path, selected_class)
+                for fn in os.listdir(sub_fn_path):
+                    paths_.append(os.path.join(sub_fn_path, fn))
                 return paths_
 
             def data_path_assertions(data_path, img_or_mask, train_or_val):
@@ -66,9 +65,9 @@ class Datagenerator(Dataset):
                 assert _selected_class == selected_class, "wrong class (selected class)"
             
             img_tr_path = os.path.join(train_root_path, "images")
-            img_datasets_train = datasets.DatasetFolder(root=img_tr_path, loader=loader(img_tr_path), extensions=".npy")
+            img_datasets_train = datasets.DatasetFolder(root=img_tr_path, loader=loader(img_tr_path, selected_class), extensions=".npy")
             img_vl_path = os.path.join(val_root_path, "images")
-            img_datasets_val = datasets.DatasetFolder(root=img_vl_path, loader=loader(img_vl_path), extensions=".npy")
+            img_datasets_val = datasets.DatasetFolder(root=img_vl_path, loader=loader(img_vl_path, selected_class), extensions=".npy")
             
             img_paths_train = [i for i in img_datasets_train.loader if selected_class in i]
             random.shuffle(img_paths_train)
