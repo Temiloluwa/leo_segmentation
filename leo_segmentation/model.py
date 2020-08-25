@@ -290,7 +290,7 @@ def load_model(config):
                  .format(experiment.number))
     
     checkpoints = os.listdir(model_dir)
-    checkpoints.pop()
+    checkpoints = [i for i in checkpoints if os.path.splitext(i)[-1] == ".tar"]
     max_cp = max([int(cp.split(".")[0].split("_")[1]) for cp in checkpoints])
     #if experiment.episode == -1, load latest checkpoint
     episode = max_cp if experiment.episode == -1 else experiment.episode

@@ -124,8 +124,10 @@ def check_experiment(config):
     if f"experiment_{experiment.number}" in existing_models and \
         f"checkpoint_{experiment.episode}.pth.tar" in existing_checkpoints:
             return True
+    elif f"experiment_{experiment.number}" in existing_models and \
+        experiment.episode == -1:
+            return True
     else:
-        
         create_log()
         return None
 
