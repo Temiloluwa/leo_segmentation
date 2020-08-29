@@ -87,7 +87,7 @@ def predict_model(config):
 def main():
     config = load_config()
     if config.train:
-        train_model(config, writer)
+        train_model(config)
     else:
         predict_model(config)
     

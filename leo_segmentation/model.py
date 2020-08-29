@@ -3,6 +3,7 @@
 import torch, os
 from torch import nn
 from torch.distributions import Normal
+import torch.nn.functional as F
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 from utils import display_data_shape, get_named_dict, one_hot_target,\
@@ -35,7 +36,7 @@ class LEO(nn.Module):
         self.latent_size = config.hyperparameters.num_latents
         self.dense_input_shape = (28, 192, 256)
         self.encoder = self.encoder_block(14, 28, dropout=True)
-        self.decoder = self.decoder_block(28, 28, 28, 28, dropout=False)
+        self.decoder, self.output_shape = self.decoder_block(14, 2, 3, dropout=False)
         self.device  = torch.device("cuda:0" if torch.cuda.is_available() and config.use_gpu else "cpu")
               
     def encoder_block(self, in_channels, out_channels, dropout=False):
@@ -49,47 +50,33 @@ class LEO(nn.Module):
         
         return nn.Sequential(*layers)
 
-    def decoder_block(self, conv_tr_in_channels, conv_tr_out_channels, \
-            in_channels, out_channels, dropout=False):
-        layers = [  nn.Linear(self.latent_size, int(np.prod(self.dense_input_shape))),
-                    nn.ReLU(True),
-                    Reshape((-1,) + self.dense_input_shape),
-                    nn.ConvTranspose2d(in_channels=conv_tr_in_channels,
-                                    out_channels=conv_tr_out_channels,
-                                    kernel_size=4, stride=2,\
-                                    padding=1),
-                    nn.Conv2d(in_channels, out_channels, kernel_size=3,\
-                        stride=1, padding=1),
-                    nn.BatchNorm2d(out_channels),
-                    nn.ReLU(inplace=False)]
+    def decoder_block(self, input_channels, output_channels, kernel_size, dropout=False):
+        output_size = input_channels * kernel_size**2 * output_channels
+        output_shape = (output_channels, input_channels, kernel_size, kernel_size)
+        layers = [nn.Linear(self.latent_size, 100), nn.ReLU(inplace=False), [nn.Linear(200, output_size)]
         if dropout:
             layers.append(nn.Dropout(inplace=False))
     
-        return nn.Sequential(*layers)
+        return nn.Sequential(*layers), output_shape
 
     def forward_encoder(self, inputs):
         o = self.encoder(inputs)
         latents, mean, logvar = self.sample_latents(o)
         self.latents, self.mean, self.logvar = latents, mean, logvar
-        #logpz = self.log_normal_pdf(latents, 0., 0.)
-        #logqz_x = self.log_normal_pdf(latents, mean, logvar)
-        #kl_loss = torch.mean(logqz_x - logpz )
         kl_loss =  -0.5 * torch.sum(logvar - mean.pow(2) - logvar.exp() + 1, dim=1)
         kl_loss = torch.mean(kl_loss)
         return latents, kl_loss
         
     def forward_decoder(self, inputs, latents, targets):
-        predicted_weights = self.decoder(latents)
-        #average codes per class
-        predicted_weights = torch.unsqueeze(torch.mean(predicted_weights, 0), 0)
-        inner_loss, pred = self.calculate_inner_loss(inputs, targets, predicted_weights)
-        return inner_loss, predicted_weights, pred
+        decoder_output = self.decoder(latents)
+        kernels = self.reshape_output(decoder_output)
+        inner_loss, pred = self.calculate_inner_loss(inputs, targets, kernels)
+        return inner_loss, kernels, pred
 
-    def log_normal_pdf(self, sample, mean, logvar, raxis=1):
-        log2pi = torch.log(2. * np.pi)
-        return torch.sum(
-            -.5 * ((sample - mean).pow(2) * torch.exp(-logvar) + logvar + log2pi),
-            dim=raxis)
+    def reshape_output(self, decoder_output):
+        decoder_output = torch.mean(decoder_output, 0)
+        kernels = torch.reshape(decoder_output, self.output_shape)
+        return kernels
         
     def sample_latents(self, encoder_output):
         split_size = int(encoder_output.shape[1]//2)
@@ -100,16 +87,11 @@ class LEO(nn.Module):
         latents = eps * torch.exp(logvar * 0.5) + mean
         return latents, mean, logvar
        
-    def seg_network(self, inputs, predicted_weights):
-        channel_zero = inputs * predicted_weights[:, :14, :, :]
-        channel_zero = torch.unsqueeze(torch.mean(channel_zero, dim=1), 1)
-        channel_one = inputs * predicted_weights[:, 14:, :, :]
-        channel_one = torch.unsqueeze(torch.mean(channel_one, dim=1), 1)
-        pred =  torch.cat([channel_zero, channel_one], 1)
-        return pred
+    def seg_network(self, inputs, kernels):
+        return F.conv2d(inputs, kernels, stride=1 ,padding=1)
 
-    def calculate_inner_loss(self, inputs, targets, predicted_weights):
-        pred = self.seg_network(inputs, predicted_weights)
+    def calculate_inner_loss(self, inputs, targets, kernels):
+        pred = self.seg_network(inputs, kernels)
         hot_targets = one_hot_target(targets)
         hot_targets.requires_grad = True
         pred = torch.clamp(pred, -10, 3.0)
@@ -136,10 +118,10 @@ class LEO(nn.Module):
             latents_grad = torch.autograd.grad(tr_loss, [latents], create_graph=False)[0]
             with torch.no_grad():
                 latents -= inner_lr * latents_grad
-            tr_loss, segmentation_weights, _ = self.forward_decoder(inputs, latents, target)
-        return tr_loss, segmentation_weights
+            tr_loss, kernels, _ = self.forward_decoder(inputs, latents, target)
+        return tr_loss, kernels
 
-    def finetuning_inner_loop(self, data, tr_loss, seg_weights):
+    def finetuning_inner_loop(self, data, tr_loss, kernels):
         """
         This function does "segmentation_weights optimization"
         Args:
@@ -151,11 +133,11 @@ class LEO(nn.Module):
         """
         finetuning_lr = self.config.hyperparameters.finetuning_lr
         for _ in range( self.config.hyperparameters.num_finetuning_steps):
-            seg_weights_grad = torch.autograd.grad(tr_loss, [seg_weights])[0]
+            grad_kernels = torch.autograd.grad(tr_loss, [kernels])[0]
             with torch.no_grad():
-                seg_weights -= finetuning_lr * seg_weights_grad
-            tr_loss, _ = self.calculate_inner_loss(data.tr_data, data.tr_data_masks, seg_weights)
-        val_loss, _ = self.calculate_inner_loss(data.val_data, data.val_data_masks, seg_weights)
+                kernels -= finetuning_lr * grad_kernels
+            tr_loss, _ = self.calculate_inner_loss(data.tr_data, data.tr_data_masks, kernels)
+        val_loss, _ = self.calculate_inner_loss(data.val_data, data.val_data_masks, kernels)
         return val_loss
 
     def forward(self, tr_data, tr_data_masks, val_data, val_masks):
@@ -190,10 +172,10 @@ class LEO(nn.Module):
             data_dict = get_named_dict(metadata, batch)
             latents, kl_loss = self.forward_encoder(data_dict.tr_data)
 
-            tr_loss, adapted_seg_weights = self.leo_inner_loop(\
+            tr_loss, adapted_kernels = self.leo_inner_loop(\
                             data_dict.tr_data, latents, data_dict.tr_data_masks)
 
-            val_loss = self.finetuning_inner_loop(data_dict, tr_loss, adapted_seg_weights)
+            val_loss = self.finetuning_inner_loop(data_dict, tr_loss, adapted_kernels)
             total_val_loss.append(val_loss)
             kl_loss = kl_loss * self.config.hyperparameters.kl_weight
             kl_losses.append(kl_loss)
@@ -216,7 +198,7 @@ class LEO(nn.Module):
         for batch in range(num_tasks):
             data_dict = get_named_dict(metadata, batch)
             latents, _ = self.forward_encoder(data_dict.val_data)
-            _, _, predictions = self.forward_decoder(data_dict.val_data, latents, data_dict.val_data_masks)
+            _, _,  predictions = self.forward_decoder(data_dict.val_data, latents, data_dict.val_data_masks)
             iou = calc_iou_per_class(predictions, data_dict.val_data_masks)
             batch_msg = f"\nClass: {classes[batch]}, Episode: {train_stats.episode}, Val IOU: {iou}"
             print(batch_msg[1:])

@@ -1,7 +1,7 @@
 {
     "train":true,
-    "use_gpu":false,
-    "checkpoint_interval":49,
+    "use_gpu":true,
+    "checkpoint_interval":499,
     "display_stats_interval":10,
     "dtype":"float32",
     "data_path":"data",
@@ -13,16 +13,16 @@
         "n_val_per_class":{"meta_train":5, "meta_val":20, "meta_test":20},
         "num_tasks":{"meta_train":7, "meta_val":5, "meta_test":5}
     },
-    "experiment":{"number":6, "episode":1, "description":"1e-5learning_rate", "prompt_deletion":true},
+    "experiment":{"number":7, "episode":1, "description":"conv_layer", "prompt_deletion":true},
     "hyperparameters":{
         "outer_loop_lr":1e-5,
-        "inner_loop_lr":1e-5,
-        "finetuning_lr":1e-5,
+        "inner_loop_lr":1e-3,
+        "finetuning_lr":1e-3,
         "dropout_rate":0.2,
         "kl_weight":0.5,
-        "num_latents":200,
-        "num_finetuning_steps":5,
+        "num_latents":50,
+        "num_finetuning_steps":30,
         "num_adaptation_steps":5,
-        "episodes":100
+        "episodes":1000
     }
 }
