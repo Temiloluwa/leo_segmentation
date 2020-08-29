@@ -81,10 +81,9 @@ class LEO(nn.Module):
         return inner_loss, kernels, pred
 
     def reshape_output(self, decoder_output):
-        decoder_output = torch.unsqueeze(torch.mean(decoder_output, 0), 0)
-        channel_zero = decoder_output[:,:14, :, :]
-        channel_one = decoder_output[:,14:, :, :]
-        kernels = torch.cat((channel_zero, channel_one), axis=0)
+        decoder_output = torch.mean(decoder_output, 0)
+        channels, ks , ks = decoder_output.shape
+        kernels = torch.reshape(decoder_output, (2, int(channels/2), ks , ks))
         return kernels
         
     def sample_latents(self, encoder_output):

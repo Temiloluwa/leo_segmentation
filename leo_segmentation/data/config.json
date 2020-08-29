@@ -1,7 +1,7 @@
 {
     "train":true,
-    "use_gpu":true,
-    "checkpoint_interval":199,
+    "use_gpu":false,
+    "checkpoint_interval":50,
     "display_stats_interval":10,
     "dtype":"float32",
     "data_path":"data",
@@ -16,13 +16,13 @@
     "experiment":{"number":10, "episode":1, "description":"conv_decoder", "prompt_deletion":false},
     "hyperparameters":{
         "outer_loop_lr":1e-5,
-        "inner_loop_lr":1e-3,
-        "finetuning_lr":1e-3,
+        "inner_loop_lr":1e-4,
+        "finetuning_lr":1e-4,
         "dropout_rate":0.2,
         "kl_weight":0.5,
         "num_latents":50,
-        "num_finetuning_steps":30,
+        "num_finetuning_steps":5,
         "num_adaptation_steps":5,
-        "episodes":200
+        "episodes":50
     }
 }
