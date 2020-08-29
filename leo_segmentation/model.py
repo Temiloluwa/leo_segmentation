@@ -1,11 +1,11 @@
 # Architecture definition
 # Computational graph creation
-import torch, os
+import torch, os, numpy as np
 from torch import nn
 from torch.distributions import Normal
-import torch.nn.functional as F
-import numpy as np
+from torch.nn import CrossEntropyLoss
 from torch.utils.tensorboard import SummaryWriter
+from  torch.nn import functional as F
 from utils import display_data_shape, get_named_dict, one_hot_target,\
     softmax, sparse_crossentropy, calc_iou_per_class, log_data, load_config,\
     summary_write_masks
@@ -38,6 +38,7 @@ class LEO(nn.Module):
         self.encoder = self.encoder_block(14, 28, dropout=True)
         self.decoder, self.output_shape = self.decoder_block(14, 2, 3, dropout=False)
         self.device  = torch.device("cuda:0" if torch.cuda.is_available() and config.use_gpu else "cpu")
+        self.loss_fn = CrossEntropyLoss()
               
     def encoder_block(self, in_channels, out_channels, dropout=False):
         layers = [nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=2, padding=1),
@@ -53,7 +54,7 @@ class LEO(nn.Module):
     def decoder_block(self, input_channels, output_channels, kernel_size, dropout=False):
         output_size = input_channels * kernel_size**2 * output_channels
         output_shape = (output_channels, input_channels, kernel_size, kernel_size)
-        layers = [nn.Linear(self.latent_size, 100), nn.ReLU(inplace=False), [nn.Linear(200, output_size)]
+        layers = [nn.Linear(self.latent_size, 100), nn.ReLU(inplace=False), nn.Linear(100, output_size)]
         if dropout:
             layers.append(nn.Dropout(inplace=False))
     
@@ -92,11 +93,7 @@ class LEO(nn.Module):
 
     def calculate_inner_loss(self, inputs, targets, kernels):
         pred = self.seg_network(inputs, kernels)
-        hot_targets = one_hot_target(targets)
-        hot_targets.requires_grad = True
-        pred = torch.clamp(pred, -10, 3.0)
-        pred = softmax(pred)
-        loss = sparse_crossentropy(hot_targets, pred)
+        loss = self.loss_fn(pred, targets.long())
         return loss, pred
         
     def leo_inner_loop(self, inputs, latents, target):

@@ -64,11 +64,8 @@ def train_model(config):
         if episode == episodes:
             return leo, metadata, class_in_metadata
         del metadata
-        gc.collect()
-
-        
-
-        torch.cuda.ipc_collect()
+        #gc.collect()
+        #torch.cuda.ipc_collect()
         torch.cuda.empty_cache()
         
         #meta-val
