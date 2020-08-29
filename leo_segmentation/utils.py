@@ -2,6 +2,8 @@ import torch
 import torch.optim as optim
 import os, pickle, json, random
 import numpy as np
+import torchvision
+from matplotlib import pyplot as plt
 from easydict import EasyDict as edict
 
 def load_config(config_path:str = "data/config.json"):
@@ -202,3 +204,41 @@ def sparse_crossentropy(target, pred,  channel_dim=1, eps=1e-10):
     pred += eps
     loss = torch.sum(-1 * target * torch.log(pred), dim=channel_dim)
     return torch.mean(loss)
+
+
+def plot_masks(mask_data, ground_truth=False):
+    """
+    plots masks for tensorboard make_grid
+    Args:
+        mask_data(torch.Tensor) - mask data
+        ground_truth(bool) - True if mask is a groundtruth else it is a prediction
+    """
+    if ground_truth:
+        plt.imshow(np.mean(mask_data.cpu().detach().numpy(), 0)/2 + 0.5, cmap="gray")
+    else:
+        plt.imshow(np.mean(mask_data.cpu().detach().numpy())/2 + 0.5, cmap="gray")
+
+
+def summary_write_masks(batch_data, writer, grid_title, ground_truth=False):
+    """
+    Summary writer creates image grid for tensorboard
+    Args:
+        batch_data(torch.Tensor) - mask data
+        writer - Tensorboard summary writer
+        grid_title(str) - title of mask grid
+        ground_truth(bool) - True if mask is a groundtruth else it is a prediction
+
+    """
+    if ground_truth:
+        batch_data = torch.unsqueeze(batch_data, 1)
+        masks_grid = torchvision.utils.make_grid(batch_data)
+        episode = int(grid_title.split("_")[2])
+        #plot_masks(masks_grid, ground_truth=True)
+    else:
+        batch_data = torch.unsqueeze(torch.argmax(batch_data, dim=1), 1)
+        masks_grid = torchvision.utils.make_grid(batch_data)
+        episode = int(grid_title.split("_")[1])
+        #plot_masks(masks_grid)
+
+    writer.add_image(grid_title, masks_grid, episode)
+

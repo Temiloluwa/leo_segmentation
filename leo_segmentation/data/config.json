@@ -1,7 +1,7 @@
 {
     "train":true,
     "use_gpu":false,
-    "checkpoint_interval":10,
+    "checkpoint_interval":49,
     "display_stats_interval":10,
     "dtype":"float32",
     "data_path":"data",
@@ -10,19 +10,19 @@
         "num_classes":1,
         "meta_train_val_test_ratio":[10,5,5],
         "n_train_per_class":{"meta_train":2, "meta_val":2, "meta_test":2},
-        "n_val_per_class":{"meta_train":5, "meta_val":5, "meta_test":5},
+        "n_val_per_class":{"meta_train":5, "meta_val":20, "meta_test":20},
         "num_tasks":{"meta_train":7, "meta_val":5, "meta_test":5}
     },
-    "experiment":{"number":3, "episode":-1, "description":"first_model", "prompt_deletion":true},
+    "experiment":{"number":6, "episode":1, "description":"1e-5learning_rate", "prompt_deletion":true},
     "hyperparameters":{
-        "outer_loop_lr":1e-4,
-        "inner_loop_lr":1e-4,
-        "finetuning_lr":1e-4,
+        "outer_loop_lr":1e-5,
+        "inner_loop_lr":1e-5,
+        "finetuning_lr":1e-5,
         "dropout_rate":0.2,
         "kl_weight":0.5,
         "num_latents":200,
         "num_finetuning_steps":5,
         "num_adaptation_steps":5,
-        "episodes":66
+        "episodes":100
     }
 }

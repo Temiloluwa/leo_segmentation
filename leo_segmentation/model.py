@@ -4,8 +4,10 @@ import torch, os
 from torch import nn
 from torch.distributions import Normal
 import numpy as np
+from torch.utils.tensorboard import SummaryWriter
 from utils import display_data_shape, get_named_dict, one_hot_target,\
-    softmax, sparse_crossentropy, calc_iou_per_class, log_data, load_config
+    softmax, sparse_crossentropy, calc_iou_per_class, log_data, load_config,\
+    summary_write_masks
     
 class Flatten(nn.Module):
   def __init__(self):
@@ -35,7 +37,7 @@ class LEO(nn.Module):
         self.encoder = self.encoder_block(14, 28, dropout=True)
         self.decoder = self.decoder_block(28, 28, 28, 28, dropout=False)
         self.device  = torch.device("cuda:0" if torch.cuda.is_available() and config.use_gpu else "cpu")
-        
+              
     def encoder_block(self, in_channels, out_channels, dropout=False):
         layers = [nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=2, padding=1),
                   nn.BatchNorm2d(out_channels),
@@ -69,8 +71,12 @@ class LEO(nn.Module):
         o = self.encoder(inputs)
         latents, mean, logvar = self.sample_latents(o)
         self.latents, self.mean, self.logvar = latents, mean, logvar
-        kl_loss =  -0.5 * torch.mean(logvar - mean.pow(2) - logvar.exp() + 1, dim=1)
-        return latents, torch.mean(kl_loss)
+        #logpz = self.log_normal_pdf(latents, 0., 0.)
+        #logqz_x = self.log_normal_pdf(latents, mean, logvar)
+        #kl_loss = torch.mean(logqz_x - logpz )
+        kl_loss =  -0.5 * torch.sum(logvar - mean.pow(2) - logvar.exp() + 1, dim=1)
+        kl_loss = torch.mean(kl_loss)
+        return latents, kl_loss
         
     def forward_decoder(self, inputs, latents, targets):
         predicted_weights = self.decoder(latents)
@@ -78,14 +84,20 @@ class LEO(nn.Module):
         predicted_weights = torch.unsqueeze(torch.mean(predicted_weights, 0), 0)
         inner_loss, pred = self.calculate_inner_loss(inputs, targets, predicted_weights)
         return inner_loss, predicted_weights, pred
+
+    def log_normal_pdf(self, sample, mean, logvar, raxis=1):
+        log2pi = torch.log(2. * np.pi)
+        return torch.sum(
+            -.5 * ((sample - mean).pow(2) * torch.exp(-logvar) + logvar + log2pi),
+            dim=raxis)
         
     def sample_latents(self, encoder_output):
-        split_size = int(encoder_output.shape[1]/2)
+        split_size = int(encoder_output.shape[1]//2)
         splits = [split_size, split_size]
         mean, logvar = torch.split(encoder_output, splits, dim=1)
         eps_dist = Normal(torch.zeros(mean.size()), torch.ones(logvar.size()))
         eps = eps_dist.sample().to(self.device)
-        latents = eps * logvar + mean
+        latents = eps * torch.exp(logvar * 0.5) + mean
         return latents, mean, logvar
        
     def seg_network(self, inputs, predicted_weights):
@@ -146,7 +158,17 @@ class LEO(nn.Module):
         val_loss, _ = self.calculate_inner_loss(data.val_data, data.val_data_masks, seg_weights)
         return val_loss
 
-    def compute_loss(self, metadata, train_stats, config, mode="meta_train"):
+    def forward(self, tr_data, tr_data_masks, val_data, val_masks):
+        metadata = (tr_data, tr_data_masks, val_data, val_masks, "") 
+        data_dict = get_named_dict(metadata, 0)
+        latents, kl_loss = self.forward_encoder(data_dict.tr_data)
+        inner_loss, _, _ = self.forward_decoder(data_dict.tr_data, latents, data_dict.tr_data_masks)
+        #val_loss = self.finetuning_inner_loop(data_dict, tr_loss, adapted_seg_weights)
+        #kl_loss = kl_loss * self.config.hyperparameters.kl_weight
+        return inner_loss + kl_loss
+
+
+    def compute_loss(self, metadata, train_stats, mode="meta_train"):
         """
         Computes the  outer loop loss
 
@@ -160,7 +182,7 @@ class LEO(nn.Module):
             (tuple) total_val_loss (list), train_stats
         """
         num_tasks = len(metadata[0])
-        if train_stats.episode % config.display_stats_interval == 1:
+        if train_stats.episode % self.config.display_stats_interval == 1:
             display_data_shape(metadata)
         total_val_loss = []
         kl_losses = []
@@ -175,7 +197,7 @@ class LEO(nn.Module):
             total_val_loss.append(val_loss)
             kl_loss = kl_loss * self.config.hyperparameters.kl_weight
             kl_losses.append(kl_loss)
-            
+
         total_val_loss = sum(total_val_loss)/len(total_val_loss)
         total_kl_loss = sum(kl_losses)/len(kl_losses)
         total_loss = total_val_loss + total_kl_loss
@@ -188,7 +210,7 @@ class LEO(nn.Module):
         return total_loss, train_stats
 
 
-    def evaluate_val_data(self, metadata, classes, train_stats):
+    def evaluate_val_data(self, metadata, classes, train_stats, writer):
         log_msg = ""
         num_tasks = len(metadata[0])
         for batch in range(num_tasks):
@@ -199,6 +221,10 @@ class LEO(nn.Module):
             batch_msg = f"\nClass: {classes[batch]}, Episode: {train_stats.episode}, Val IOU: {iou}"
             print(batch_msg[1:])
             log_msg += batch_msg
+            grid_title = f"pred_{train_stats.episode}_class_{classes[batch]}"
+            summary_write_masks(predictions, writer, grid_title)
+            grid_title = f"ground_truths_{train_stats.episode}_class_{classes[batch]}"
+            summary_write_masks(data_dict.val_data_masks, writer, grid_title, ground_truth=True)
         log_filename = os.path.join(os.path.dirname(__file__), "data", "models",\
                          f"experiment_{self.config.experiment.number}", "val_stats_log.txt")
         log_data(log_msg, log_filename)

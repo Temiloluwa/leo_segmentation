@@ -2,8 +2,12 @@ from data import Datagenerator, TrainingStats
 from model import LEO, load_model, save_model
 from  torch.nn import MSELoss
 from easydict import EasyDict as edict
-from utils import load_config, check_experiment
+from torch.utils.tensorboard import SummaryWriter
+from utils import load_config, check_experiment, get_named_dict
+from functools import partial
+import numpy as np
 import torch.optim as optim
+import os
 import argparse
 import torch 
 import torch.optim
@@ -16,8 +20,10 @@ import gc
 
 dataset = "pascal_voc"
 
+
 def train_model(config):
     """Trains Model"""
+    writer = SummaryWriter(os.path.join(config.data_path, "models", str(config.experiment.number)))
     device = torch.device("cuda:0" if torch.cuda.is_available() and config.use_gpu else "cpu")
     if check_experiment(config):
         leo, optimizer, stats = load_model(config)
@@ -37,23 +43,30 @@ def train_model(config):
 
     for episode in range(episodes_completed+1, episodes+1):
         train_stats.set_episode(episode)
-        dataloader = Datagenerator(config, dataset, data_type="meta_test")
+        dataloader = Datagenerator(config, dataset, data_type="meta_train")
         metadata = dataloader.get_batch_data()
         class_in_metadata = metadata[-1]
-        metatrain_loss, train_stats = leo.compute_loss(metadata, train_stats, config, mode="meta_train")
+        metatrain_loss, train_stats = leo.compute_loss(metadata, train_stats)
         optimizer.zero_grad()
         metatrain_loss.backward()
         optimizer.step()
 
         if episode % config.checkpoint_interval == 0:
             save_model(leo, optimizer, config, edict(train_stats.get_latest_stats()))
-        
-        leo.evaluate_val_data(metadata, class_in_metadata, train_stats)
+            #writer.add_graph(leo, metadata[:-1])
+            #writer.close()
+          
+        leo.evaluate_val_data(metadata, class_in_metadata, train_stats, writer)
         train_stats.disp_stats()
+        
+        
+
         if episode == episodes:
             return leo, metadata, class_in_metadata
         del metadata
         gc.collect()
+
+        
 
         torch.cuda.ipc_collect()
         torch.cuda.empty_cache()
@@ -74,7 +87,7 @@ def predict_model(config):
 def main():
     config = load_config()
     if config.train:
-        train_model(config)
+        train_model(config, writer)
     else:
         predict_model(config)
     
