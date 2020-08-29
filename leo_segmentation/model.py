@@ -36,7 +36,7 @@ class LEO(nn.Module):
         self.latent_size = config.hyperparameters.num_latents
         self.dense_input_shape = (28, 192, 256)
         self.encoder = self.encoder_block(14, 28, dropout=True)
-        self.decoder, self.output_shape = self.decoder_block(14, 2, 3, dropout=False)
+        self.decoder = self.decoder_block(14, 14, 3, dropout=False)
         self.device  = torch.device("cuda:0" if torch.cuda.is_available() and config.use_gpu else "cpu")
         self.loss_fn = CrossEntropyLoss()
               
@@ -52,13 +52,19 @@ class LEO(nn.Module):
         return nn.Sequential(*layers)
 
     def decoder_block(self, input_channels, output_channels, kernel_size, dropout=False):
-        output_size = input_channels * kernel_size**2 * output_channels
-        output_shape = (output_channels, input_channels, kernel_size, kernel_size)
-        layers = [nn.Linear(self.latent_size, 100), nn.ReLU(inplace=False), nn.Linear(100, output_size)]
+        output_size = input_channels * kernel_size**2 
+        output_shape = (input_channels, kernel_size, kernel_size)
+        layers = [  nn.Linear(self.latent_size, output_size),
+                    nn.ReLU(True),
+                    Reshape((-1,) + output_shape),
+                    nn.Conv2d(input_channels, output_channels*2, kernel_size,\
+                        stride=1, padding=1),
+                    nn.BatchNorm2d(output_channels*2),
+                    nn.ReLU(inplace=False)]
         if dropout:
             layers.append(nn.Dropout(inplace=False))
     
-        return nn.Sequential(*layers), output_shape
+        return nn.Sequential(*layers)
 
     def forward_encoder(self, inputs):
         o = self.encoder(inputs)
@@ -69,14 +75,16 @@ class LEO(nn.Module):
         return latents, kl_loss
         
     def forward_decoder(self, inputs, latents, targets):
-        decoder_output = self.decoder(latents)
-        kernels = self.reshape_output(decoder_output)
+        kernels = self.decoder(latents)
+        kernels = self.reshape_output(kernels)
         inner_loss, pred = self.calculate_inner_loss(inputs, targets, kernels)
         return inner_loss, kernels, pred
 
     def reshape_output(self, decoder_output):
-        decoder_output = torch.mean(decoder_output, 0)
-        kernels = torch.reshape(decoder_output, self.output_shape)
+        decoder_output = torch.unsqueeze(torch.mean(decoder_output, 0), 0)
+        channel_zero = decoder_output[:,:14, :, :]
+        channel_one = decoder_output[:,14:, :, :]
+        kernels = torch.cat((channel_zero, channel_one), axis=0)
         return kernels
         
     def sample_latents(self, encoder_output):
