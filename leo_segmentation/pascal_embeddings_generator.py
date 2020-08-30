@@ -205,8 +205,8 @@ def train_step(model, x, masks, optimizer):
   return loss
 
 def train_model(model, epochs, freq, **model_kwargs):
-    bs, grouped_by_classes_root, train_classes = model_kwargs["bs"], model_kwargs["grouped_by_classes_root"], model_kwargs["train_classes"]
-    val_classes , transform_image, transform_mask = model_kwargs["val_classes"], model_kwargs["transform_image"], model_kwargs["transform_mask"]
+    bs, grouped_by_classes_root, _ = model_kwargs["bs"], model_kwargs["grouped_by_classes_root"], model_kwargs["train_classes"]
+    _ , transform_image, transform_mask = model_kwargs["val_classes"], model_kwargs["transform_image"], model_kwargs["transform_mask"]
     
     img_datasets = datasets.ImageFolder(root=os.path.join(grouped_by_classes_root, "train", "images"), transform=transform_image)
     mask_datasets = datasets.ImageFolder(root=os.path.join(grouped_by_classes_root, "train", "masks"), transform=transform_mask)
@@ -215,6 +215,7 @@ def train_model(model, epochs, freq, **model_kwargs):
     optimizer = tf.keras.optimizers.Adam(1e-4)
     training_stats = []
     iou_per_class_list = []
+
     for epoch in range(1, epochs + 1):
         start_time = time.time()
         dataloader_img = iter(DataLoader(img_datasets, batch_size=bs,shuffle=False, num_workers=0))
@@ -239,12 +240,14 @@ def train_model(model, epochs, freq, **model_kwargs):
         "val loss":val_loss,
         "epoch time": epoch_time
         })
-        print(f"Epoch:{epoch}, Train loss:{train_loss}, Val loss:{val_loss},Epoch Time:{epoch_time}")
+        print(f"Epoch:{epoch}, Train loss:{train_loss}, Val loss:{val_loss}, Epoch Time:{epoch_time:.2f} minutes")
 
         if epoch % freq == 0:
             plot_prediction(model, model_kwargs)
             plot_stats(pd.DataFrame(training_stats), "val loss")
     
+    total_training_time = sum([i["epoch time"] for i in training_stats])
+    print(f"Total model training time {total_training_time:.2f} minutes")
     return training_stats, iou_per_class_list, model
 
 def main(**train_kwargs):
