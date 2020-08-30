@@ -153,7 +153,7 @@ def calc_val_loss_and_iou_per_class(model, epoch, freq, **kwargs):
     val_loss.append(mean_loss_per_class)
     
     if epoch % freq == 0:
-        print(f"Mean IOU for class {class_} is {mean_iou_per_class}")
+        print(f"Mean IOU for class {class_} is {mean_iou_per_class:.3f}")
     class_ious[f"{class_}"] = mean_iou_per_class
   val_loss = np.mean(val_loss)
   return class_ious, val_loss
