@@ -16,7 +16,7 @@ import pandas as pd
 import pickle
 import os
 
-from collections import OrderedDict
+from collections import OrderedDict, Counter
 from tqdm import tqdm
 from PIL import Image
 import time
@@ -24,8 +24,8 @@ import time
 grouped_by_classes_root = os.path.join(os.path.dirname(__file__), "data", "grouped_by_classes")
 former_data_root = os.path.join(os.path.dirname(__file__), "data", "original_pascalvoc5i", "pascal-5")
 
-train_classes = os.listdir(os.path.join(grouped_by_classes_root, "images", "train"))
-val_classes = os.listdir(os.path.join(grouped_by_classes_root, "images", "val"))
+train_classes = os.listdir(os.path.join(grouped_by_classes_root, "train", "images" ))
+val_classes = os.listdir(os.path.join(grouped_by_classes_root,"val", "images"))
 train_classes = sorted([i.lower() for i in train_classes])
 val_classes = sorted([i.lower() for i in val_classes])
 print("train_classes", train_classes)
@@ -85,37 +85,43 @@ class Transform_mask(object):
         im = np.round(rgb2gray((im) > 0).astype(np.float32))
         return im
 
-num_classes = len(train_classes)
+num_classes = len(val_classes)
 img_paths = {}
 masks_paths = {}
 for i in range(num_classes):
     if i not in img_paths:
-        img_paths[classes[i]] = os.path.join(grouped_by_classes_root, "images", "train",classes[i])
+        img_paths[val_classes[i]] = os.path.join(grouped_by_classes_root, "val", "images" ,val_classes[i])
     
     if i not in masks_paths: 
-        masks_paths[classes[i]] = os.path.join(grouped_by_classes_root, "masks", "train", classes[i])
+        masks_paths[val_classes[i]] = os.path.join(grouped_by_classes_root, "val", "masks", val_classes[i])
 
 class SampleOneClass(Dataset):
     """
     CustomData dataset
     """
-    def __init__(self):
+    def __init__(self, class_name):
         super(SampleOneClass, self).__init__()
+        self.class_name = class_name
         self.img_datasets = img_val_datasets
         self.mask_datasets = mask_val_datasets
         self.transform_image = transform_image
         self.transform_mask = transform_mask
-
-    def __getitem__(self, class_name):
-        img_paths = [i[0] for i in self.img_datasets.imgs if class_name in i[0]]
-        mask_paths = [i[0] for i in self.mask_datasets.imgs if class_name in i[0]]
+        self.img_paths = [i[0] for i in self.img_datasets.imgs if class_name in i[0]]
+        self.mask_paths = [i[0] for i in self.mask_datasets.imgs if class_name in i[0]]
+        self.class_counts = Counter([i[0].split(os.sep)[-2] for i in self.img_datasets.imgs])
+        
+    def __getitem__(self, idx):
+        img_paths =  self.img_paths[idx]
+        mask_paths = self.mask_paths[idx]
+        img_paths  = [img_paths] if type(img_paths) == str else img_paths
+        mask_paths  = [mask_paths] if type(mask_paths) == str else mask_paths           
         img_p_class = np.array([self.transform_image(Image.open(i)) for i in img_paths])
         msk_p_class = np.array([self.transform_mask(Image.open(i)) for i in mask_paths])
 
-        return img_p_class,msk_p_class
+        return img_p_class, msk_p_class
 
     def __len__(self):
-        return len(img_paths)
+        return self.class_counts[self.class_name]
 
 
 num_channels, img_height, img_width =  3, 384,512
@@ -133,11 +139,6 @@ img_filenames = ["_".join(i[0].split("/")[-2:]) for i in img_datasets.imgs]
 mask_filenames = ["_".join(i[0].split("/")[-2:]) for i in mask_datasets.imgs]
 
 
-bs = 200
-dataloader_img = DataLoader(img_datasets, batch_size=bs,shuffle=False, num_workers=0)
-dataloader_mask = DataLoader(mask_datasets, batch_size=bs,shuffle=False, num_workers=0)
-
-
 base_model = tf.keras.applications.MobileNetV2(
     weights="imagenet",  
     input_shape=(img_height, img_width, num_channels), 
@@ -152,7 +153,7 @@ layer_names = [
     'block_16_project',      # 12, 16, 320
 ]
 
-ayers = [base_model.get_layer(name).output for name in layer_names]
+layers = [base_model.get_layer(name).output for name in layer_names]
 # Freeze the base_model
 encoder = tf.keras.Model(inputs=base_model.input, outputs=layers)
 encoder.trainable = False
@@ -183,27 +184,27 @@ encoder_output = skips[-1]
 #comments on input size are wrong
 print(encoder_output.shape)
 x = conv1(encoder_output)
-x = tf.keras.layers.Dropout(0.25)(x)
+x = tf.keras.layers.Dropout(0.5)(x)
 x = conv1b(x)
 x = upsample1(x)
 x = concat([x, skips[-2]])
 x = conv2(x)
-x = tf.keras.layers.Dropout(0.25)(x)
+x = tf.keras.layers.Dropout(0.5)(x)
 x = conv2b(x)
 x = upsample2(x)
 x = concat([x, skips[-3]])
 x = conv3(x)
-x = tf.keras.layers.Dropout(0.25)(x)
+x = tf.keras.layers.Dropout(0.5)(x)
 x = conv3b(x)
 x = upsample3(x)
 x = concat([x, skips[-4]])
 x = conv4(x)
-x = tf.keras.layers.Dropout(0.25)(x)
+x = tf.keras.layers.Dropout(0.5)(x)
 x = conv4b(x)
 x = upsample4(x)
 x = concat([x, skips[-5]])
 out4 = conv5(x)
-x = tf.keras.layers.Dropout(0.25)(out4)
+x = tf.keras.layers.Dropout(0.5)(out4)
 x = conv5b(x)
 x = upsample5(x)
 output = convfinal(x)
@@ -216,29 +217,32 @@ def compute_loss(model, x, masks):
   logits = model(x)[0]
   scce = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
   scce_loss = scce(masks, logits)
-  return scce_loss
+  return scce_loss, logits
 
-def calc_iou_per_class(model, epoch, freq):
+def calc_val_loss_and_iou_per_class(model, epoch, freq):
   class_ious = {}
-  class_one = SampleOneClass()
-  bs = 5
+  val_loss = []
   for class_ in val_classes:
-    imgs_in_class, msks_in_class = class_one[class_]
+    class_one = SampleOneClass(class_)
     iou_per_class = []
-    for j in range(len(imgs_in_class)//bs+1):
-      logits = model(imgs_in_class[bs*j:(bs+1)*j])[0]
-      targets = msks_in_class[bs*j:(bs+1)*j]
-      for i in range(len(logits)):
-        pred = np.argmax(logits[i].numpy(),axis=-1).astype(int)
-        target = targets[i].astype(int)
+    loss_per_class = []
+    for j in range(len(class_one)):
+        inp_img, target = class_one[j]
+        loss, logits = compute_loss(model, inp_img, target)
+        pred = np.argmax(logits.numpy(),axis=-1).astype(int)
+        target = target.astype(int)
         iou = np.sum(np.logical_and(target, pred))/np.sum(np.logical_or(target, pred))
         iou_per_class.append(iou)
+        loss_per_class.append(loss)
     mean_iou_per_class = np.mean(iou_per_class)
-    if epoch % freq == 0:
-      print(f"Mean IOU for class {class_} is {mean_iou_per_class}")
+    mean_loss_per_class = np.mean(loss_per_class)
+    val_loss.append(mean_loss_per_class)
+    
+    if epoch % freq == 1:
+        print(f"Mean IOU for class {class_} is {mean_iou_per_class}")
     class_ious[f"{class_}"] = mean_iou_per_class
-  return class_ious
-
+  val_loss = np.mean(val_loss)
+  return class_ious, val_loss
 
 def plot_prediction(model, input_data, masks, filenames):  
   fig = plt.figure(figsize=(30, 30))
@@ -275,7 +279,7 @@ def train_step(model, x, masks, optimizer):
   update the model's parameters.
   """
   with tf.GradientTape() as tape:
-    loss = compute_loss(model, x, masks)
+    loss, _  = compute_loss(model, x, masks)
   gradients = tape.gradient(loss, model.trainable_variables)
   optimizer.apply_gradients(zip(gradients, model.trainable_variables))
   return loss
@@ -284,8 +288,7 @@ def train_step(model, x, masks, optimizer):
 tf.keras.backend.clear_session()
 epochs = 30
 freq = 5
-bs = 32
-num_batches = num_samples//bs
+bs = 10
 training_stats = []
 iou_per_class_list = []
 
@@ -300,20 +303,24 @@ for epoch in range(1, epochs + 1):
         batch_masks = next(dataloader_mask)[0].numpy()
         batch_loss = train_step(model, batch_imgs, batch_masks, optimizer)
         batch_losses.append(batch_loss.numpy())
-    end_time = time.time()
+   
     train_loss = float(np.mean(batch_losses))
-    iou_per_class = calc_iou_per_class(model, epoch, freq)
+    iou_per_class, val_loss = calc_val_loss_and_iou_per_class(model, epoch, freq)
     iou_per_class_list.append(iou_per_class)
-    epoch_time = end_time - start_time
+    end_time = time.time()
+    epoch_time = (end_time - start_time)/60
 
     training_stats.append({
       "epoch":epoch,
       "train loss":train_loss,
+      "val loss":val_loss,
       "epoch time": epoch_time
     })
-    print(f"Epoch:{epoch}, Train loss:{train_loss},Epoch Time:{epoch_time}")
+    print(f"Epoch:{epoch}, Train loss:{train_loss}, Val loss:{val_loss},Epoch Time:{epoch_time}")
     #if epoch % freq == 0:
         #plot_prediction(model, batch_imgs, batch_masks, img_filenames)
         #plot_stats(pd.DataFrame(training_stats), "train loss")
-
+        #
+save_pickled_data(training_stats, "training_stats.pkl")
+save_pickled_data(iou_per_class_list, "iou_per_class_list.pkl")
 
