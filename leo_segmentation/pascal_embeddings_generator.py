@@ -240,7 +240,7 @@ def train_model(model, epochs, freq, **model_kwargs):
         "val loss":val_loss,
         "epoch time": epoch_time
         })
-        print(f"Epoch:{epoch}, Train loss:{train_loss}, Val loss:{val_loss}, Epoch Time:{epoch_time:.2f} minutes")
+        print(f"Epoch:{epoch}, Train loss:{train_loss:.3f}, Val loss:{val_loss:.3f}, Epoch Time:{epoch_time:.3f} minutes")
 
         if epoch % freq == 0:
             plot_prediction(model, model_kwargs)
