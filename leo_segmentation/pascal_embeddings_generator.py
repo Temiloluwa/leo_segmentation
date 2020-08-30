@@ -316,9 +316,10 @@ def train_model(model, epochs, freq, **model_kwargs):
         "epoch time": epoch_time
         })
         print(f"Epoch:{epoch}, Train loss:{train_loss}, Val loss:{val_loss},Epoch Time:{epoch_time}")
-    if epoch % freq == 0:
-        plot_prediction(model, model_kwargs)
-        plot_stats(pd.DataFrame(training_stats), "val loss")
+
+        if epoch % freq == 0:
+            plot_prediction(model, model_kwargs)
+            plot_stats(pd.DataFrame(training_stats), "val loss")
     
     return training_stats, iou_per_class_list, model
 
