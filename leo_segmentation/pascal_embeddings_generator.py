@@ -1,10 +1,9 @@
-# ##### REFERENCE: This code is based on the Tensorflow Segmentation official tutorial
-# ##### Copyright 2019 The TensorFlow Authors.
-#@title Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# https://www.apache.org/licenses/LICENSE-2.0
+# REFERENCE: This code is based on the Tensorflow Segmentation official tutorial
+# https://www.tensorflow.org/tutorials/images/segmentation
+# authors - Temiloluwa Adeoti
+# description - Transfer Learning on PASCALVOC 5i dataset
+# date - 30-08-2020
+
 import numpy as np
 import tensorflow as tf
 import torch
@@ -17,6 +16,7 @@ import os
 from collections import OrderedDict, Counter
 from tqdm import tqdm
 from PIL import Image
+from model import init_mobilenet_v2_backbone, init_xception_backbone 
 import time
 
 def load_pickled_data(data_path):
@@ -38,7 +38,6 @@ def save_npy(np_array, filename):
 #https://stackoverflow.com/questions/12201577/how-can-i-convert-an-rgb-image-into-grayscale-in-python
 def rgb2gray(rgb):
     return np.dot(rgb[...,:3], [0.2989, 0.5870, 0.1140])
-
 
 def save_embeddings(model, data_type, **kwargs):
     path_root = os.path.join(os.path.dirname(__file__), "data", "pascal_voc")
@@ -78,7 +77,6 @@ class Transform_image(object):
         im = (im - 127.5)/127.5
         return im
     
-
 class Transform_mask(object):
 
     def __init__(self, img_width, img_height):
@@ -128,81 +126,6 @@ class SampleOneClass(Dataset):
     def __len__(self):
         return self.class_counts[self.class_name]
 
-def init_model(num_channels, img_height, img_width):
-    base_model = tf.keras.applications.MobileNetV2(
-        weights="imagenet",  
-        input_shape=(img_height, img_width, num_channels), 
-        include_top=False,
-    )  
-
-    layer_names = [
-        'block_1_expand_relu',   # 188, 250, 96
-        'block_3_expand_relu',   # 94, 125, 144
-        'block_6_expand_relu',   # 47, 63, 192
-        'block_13_expand_relu',  # 24, 32, 576
-        'block_16_project',      # 12, 16, 320
-    ]
-
-    layers = [base_model.get_layer(name).output for name in layer_names]
-    # Freeze the base_model
-    encoder = tf.keras.Model(inputs=base_model.input, outputs=layers)
-    encoder.trainable = False
-
-    inputs = tf.keras.Input(shape=((img_height, img_width, num_channels)))
-    # Downsampling through the model
-    skips = encoder(inputs, training=False)
-
-    conv1 = tf.keras.layers.Conv2D(filters=8, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-    conv1b = tf.keras.layers.Conv2D(filters=8, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-    conv2 = tf.keras.layers.Conv2D(filters=8*2, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-    conv2b = tf.keras.layers.Conv2D(filters=8*2, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-    conv3 = tf.keras.layers.Conv2D(filters=8*3, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-    conv3b = tf.keras.layers.Conv2D(filters=8*3, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-    conv4 = tf.keras.layers.Conv2D(filters=8*4, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-    conv4b = tf.keras.layers.Conv2D(filters=8*4, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-    conv5 = tf.keras.layers.Conv2D(filters=8*5, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-    conv5b = tf.keras.layers.Conv2D(filters=8*5, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-    convfinal = tf.keras.layers.Conv2D(filters=2, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-    upsample1 = tf.keras.layers.Conv2DTranspose(8, 3, strides=2,padding='same')
-    upsample2 = tf.keras.layers.Conv2DTranspose(8*2, 3, strides=2,padding='same')
-    upsample3 = tf.keras.layers.Conv2DTranspose(8*3, 3, strides=2,padding='same')
-    upsample4 = tf.keras.layers.Conv2DTranspose(8*4, 3, strides=2,padding='same')
-    upsample5 = tf.keras.layers.Conv2DTranspose(8*5, 3, strides=2,padding='same')
-    concat = tf.keras.layers.Concatenate()
-    encoder_output = skips[-1]
-
-    #comments on input size are wrong
-    print(encoder_output.shape)
-    x = conv1(encoder_output)
-    x = tf.keras.layers.Dropout(0.5)(x)
-    x = conv1b(x)
-    x = upsample1(x)
-    x = concat([x, skips[-2]])
-    x = conv2(x)
-    x = tf.keras.layers.Dropout(0.5)(x)
-    x = conv2b(x)
-    x = upsample2(x)
-    x = concat([x, skips[-3]])
-    x = conv3(x)
-    x = tf.keras.layers.Dropout(0.5)(x)
-    x = conv3b(x)
-    x = upsample3(x)
-    x = concat([x, skips[-4]])
-    x = conv4(x)
-    x = tf.keras.layers.Dropout(0.5)(x)
-    x = conv4b(x)
-    x = upsample4(x)
-    x = concat([x, skips[-5]])
-    out4 = conv5(x)
-    x = tf.keras.layers.Dropout(0.5)(out4)
-    x = conv5b(x)
-    x = upsample5(x)
-    output = convfinal(x)
-
-    model = tf.keras.Model(inputs=inputs, outputs=[output, out4])
-    model.summary()
-    return model
-
 def compute_loss(model, x, masks):
     logits = model(x)[0]
     scce = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
@@ -237,6 +160,7 @@ def calc_val_loss_and_iou_per_class(model, epoch, freq, **kwargs):
 
 def plot_prediction(model, kwargs):
     selected_class =  np.random.choice(kwargs["val_classes"])
+    print(f"Showing predictions for class {selected_class}")
     class_one = SampleOneClass(selected_class, "val", **kwargs)
     random_indices = np.random.choice(len(class_one), 10) 
     fig = plt.figure(figsize=(30, 30))
@@ -331,18 +255,19 @@ def main(**train_kwargs):
         train_kwargs(dict): supply the following key word arguments else defaults would be used
                             defaults are shown in brackets
                             num_channels, img_height, img_width (tuple) - (3, 384, 512)
-                            epochs(int) - 30, freq(int) - 5, bs(int) - 10, experiment_number(int) - 0
+                            epochs(int) - 30, freq(int) - 5, bs(int) - 10, experiment_number(int) - 0,
+                            model(str) - mobilenet_v2
     Returns:
         training_stats (list): list of dictionaries containing the training statistics
         iou_per_class_list (list): list of dictionaries containing validation ious per class
         model (keras model)
     """
-    if not os.path.exists(os.path.join(os.path.dirname(__file__), "data", "grouped_by_classes")):
-        get_ipython().system('git clone https://github.com/Temiloluwa/leo_segmentation.git --branch temi_jenny_pascalvoc5i')
+   
     num_channels, img_height, img_width =  train_kwargs.get("image_shape", (3, 384, 512))
     epochs, freq, bs = train_kwargs.get("epochs", 30), train_kwargs.get("freq", 5), train_kwargs.get("bs", 10)
     experiment_number = train_kwargs.get("experiment_number", 0)
     generate_embeddings = train_kwargs.get("generate_embeddings", False)
+    choose_model = train_kwargs.get("model", "mobilenet_v2")
 
     grouped_by_classes_root = os.path.join(os.path.dirname(__file__), "data", "grouped_by_classes")
     train_classes = os.listdir(os.path.join(grouped_by_classes_root, "train", "images" ))
@@ -354,8 +279,15 @@ def main(**train_kwargs):
 
     transform_image = Transform_image(img_width, img_height)
     transform_mask = Transform_mask(img_width, img_height)
-    model = init_model(num_channels, img_height, img_width)
     
+    #update dict with model options
+    model_options = {"mobilenet_v2": init_mobilenet_v2_backbone,
+                     "xception": init_xception_backbone}
+
+    chosen_model = model_options[choose_model]
+    print(f"You have selected Model {choose_model}")
+    model = chosen_model(num_channels, img_height, img_width)
+
     model_kwargs = {"bs":bs, "grouped_by_classes_root":grouped_by_classes_root, "train_classes":train_classes, \
                     "val_classes":val_classes, "transform_image":transform_image, "transform_mask":transform_mask}
     
