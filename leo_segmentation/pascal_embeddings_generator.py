@@ -31,27 +31,33 @@ def save_pickled_data(data, data_path):
         data = pickle.dump(data,f)
     return data
 
+def save_npy(np_array, filename):
+    with open(f"{filename[:-4]}.npy", "wb") as f:
+        return np.save(f, np_array)
+
 #https://stackoverflow.com/questions/12201577/how-can-i-convert-an-rgb-image-into-grayscale-in-python
 def rgb2gray(rgb):
     return np.dot(rgb[...,:3], [0.2989, 0.5870, 0.1140])
 
 
-def save_embeddings(data_type, **kwargs):
-    for selected_class in kwargs[f"{val}_classes"]:
+def save_embeddings(model, data_type, **kwargs):
+    path_root = os.path.join(os.path.dirname(__file__), "data", "pascal_voc")
+    for selected_class in kwargs[f"{data_type}_classes"]:
         images_save_path_data_type_root = os.path.join(path_root, f"{data_type}", "images", selected_class)
         masks_save_path_data_type_root = os.path.join(path_root, f"{data_type}", "masks", selected_class)
-        class_one = SampleOneClass(class_, data_type, **kwargs)
+        class_one = SampleOneClass(selected_class, data_type, **kwargs)
         for j in range(len(class_one)):
             inp_img, target = class_one[j]
+            target = np.squeeze(target)
             fn = class_one.file_names[j]
-            output_embedding = model(inp_img)[1].numpy()
+            output_embedding = np.squeeze(model(inp_img)[1].numpy())
         
             if not os.path.exists(images_save_path_data_type_root):
                 os.makedirs(images_save_path_data_type_root, exist_ok=True)
                 os.makedirs(masks_save_path_data_type_root, exist_ok=True)
 
-            img_file_path = os.path.join(images_save_path_data_type_root, fn_)
-            mask_file_path = os.path.join(masks_save_path_data_type_root, fn_)
+            img_file_path = os.path.join(images_save_path_data_type_root, fn)
+            mask_file_path = os.path.join(masks_save_path_data_type_root, fn)
             save_npy(output_embedding, img_file_path)
             save_npy(target,  mask_file_path)
 
@@ -223,27 +229,31 @@ def calc_val_loss_and_iou_per_class(model, epoch, freq, **kwargs):
     mean_loss_per_class = np.mean(loss_per_class)
     val_loss.append(mean_loss_per_class)
     
-    if epoch % freq == 1:
+    if epoch % freq == 0:
         print(f"Mean IOU for class {class_} is {mean_iou_per_class}")
     class_ious[f"{class_}"] = mean_iou_per_class
   val_loss = np.mean(val_loss)
   return class_ious, val_loss
 
-def plot_prediction(model, input_data, masks, filenames):  
+def plot_prediction(model, kwargs):
+    selected_class =  np.random.choice(kwargs["val_classes"])
+    class_one = SampleOneClass(selected_class, "val", **kwargs)
+    random_indices = np.random.choice(len(class_one), 10) 
     fig = plt.figure(figsize=(30, 30))
-    ground_truth_masks = masks
-    for i in range(10):
-        pred_masks = model(input_data[i].reshape(1,img_height,img_width,3))[0]
+
+    for i,j in enumerate(random_indices):
+        input_data, ground_truth_masks = class_one[j]
+        pred_masks = model(input_data)[0]
         fig.add_subplot(10,3,i*3+1)
-        plt.imshow((input_data[i]*127.5+127.5).astype("uint8"))
-        plt.title(filenames[idx])
+        plt.imshow((np.squeeze(input_data)*127.5 + 127.5).astype("uint8"))
+        plt.title(class_one.file_names[j])
 
         fig.add_subplot(10,3,i*3+2)
-        plt.imshow(ground_truth_masks[i].reshape(img_height, img_width), cmap="gray")
+        plt.imshow(np.squeeze(ground_truth_masks) , cmap="gray")
         plt.title("ground truth")
 
         fig.add_subplot(10,3,i*3+3)
-        plt.imshow(np.argmax(pred_masks.numpy(),axis=-1)[0].reshape(img_height, img_width), cmap="gray")
+        plt.imshow(np.squeeze(np.argmax(pred_masks.numpy(),axis=-1)), cmap="gray")
         plt.title("predicted")
     plt.subplots_adjust(hspace=0.5)
     plt.show()
@@ -251,6 +261,7 @@ def plot_prediction(model, input_data, masks, filenames):
 
 def plot_stats(stats, col):
     fig = plt.figure(figsize=(10, 5))
+    plt.title(col)
     plt.plot(stats[col])
     plt.xlabel("epochs")
     plt.ylabel(col)
@@ -305,11 +316,11 @@ def train_model(model, epochs, freq, **model_kwargs):
         "epoch time": epoch_time
         })
         print(f"Epoch:{epoch}, Train loss:{train_loss}, Val loss:{val_loss},Epoch Time:{epoch_time}")
-    #if epoch % freq == 0:
-        #plot_prediction(model, batch_imgs, batch_masks, img_filenames)
-        #plot_stats(pd.DataFrame(training_stats), "train loss")
-        #
-    return training_stats, iou_per_class_list
+    if epoch % freq == 0:
+        plot_prediction(model, model_kwargs)
+        plot_stats(pd.DataFrame(training_stats), "val loss")
+    
+    return training_stats, iou_per_class_list, model
 
 def main(**train_kwargs):
     """
@@ -321,14 +332,16 @@ def main(**train_kwargs):
                             num_channels, img_height, img_width (tuple) - (3, 384, 512)
                             epochs(int) - 30, freq(int) - 5, bs(int) - 10, experiment_number(int) - 0
     Returns:
-        0
+        training_stats (list): list of dictionaries containing the training statistics
+        iou_per_class_list (list): list of dictionaries containing validation ious per class
+        model (keras model)
     """
     if not os.path.exists(os.path.join(os.path.dirname(__file__), "data", "grouped_by_classes")):
         get_ipython().system('git clone https://github.com/Temiloluwa/leo_segmentation.git --branch temi_jenny_pascalvoc5i')
     num_channels, img_height, img_width =  train_kwargs.get("image_shape", (3, 384, 512))
     epochs, freq, bs = train_kwargs.get("epochs", 30), train_kwargs.get("freq", 5), train_kwargs.get("bs", 10)
     experiment_number = train_kwargs.get("experiment_number", 0)
-    generate_embeddings = train_kwargs.get("generate_embeddings", True)
+    generate_embeddings = train_kwargs.get("generate_embeddings", False)
 
     grouped_by_classes_root = os.path.join(os.path.dirname(__file__), "data", "grouped_by_classes")
     train_classes = os.listdir(os.path.join(grouped_by_classes_root, "train", "images" ))
@@ -345,17 +358,18 @@ def main(**train_kwargs):
     model_kwargs = {"bs":bs, "grouped_by_classes_root":grouped_by_classes_root, "train_classes":train_classes, \
                     "val_classes":val_classes, "transform_image":transform_image, "transform_mask":transform_mask}
     
-    training_stats, iou_per_class_list = train_model(model, epochs, freq, **model_kwargs)
+    training_stats, iou_per_class_list, model = train_model(model, epochs, freq, **model_kwargs)
 
     train_stats_save_path_root = os.path.join(os.path.dirname(__file__), "data", "emb_train_stats")
-    os.makedirs(exist_ok=True)
+    os.makedirs(train_stats_save_path_root, exist_ok=True)
+
     save_pickled_data(training_stats, os.path.join(train_stats_save_path_root, f"training_stats_exp_{experiment_number}.pkl"))
     save_pickled_data(iou_per_class_list, os.path.join(train_stats_save_path_root, f"iou_per_class_list_exp_{experiment_number}.pkl"))
     if generate_embeddings:
-        save_embeddings("train", **model_kwargs)
-        save_embeddings("val", **model_kwargs)
+        save_embeddings(model, "train", **model_kwargs)
+        save_embeddings(model, "val", **model_kwargs)
     
-    return training_stats, iou_per_class_list
+    return training_stats, iou_per_class_list, model
 
 if __name__ == "__main__":
     main()
