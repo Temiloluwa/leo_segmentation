@@ -19,6 +19,12 @@ from PIL import Image
 from model import init_mobilenet_v2_backbone, init_xception_backbone 
 import time
 
+physical_devices = tf.config.list_physical_devices('GPU')
+try:
+    tf.config.experimental.set_memory_growth(physical_devices[0], True)
+except RuntimeError as e:
+    print(e)
+
 def load_pickled_data(data_path):
     """Reads a pickle file"""
     with open(data_path, "rb") as f:
@@ -153,7 +159,7 @@ def calc_val_loss_and_iou_per_class(model, epoch, freq, **kwargs):
     val_loss.append(mean_loss_per_class)
     
     if epoch % freq == 0:
-        print(f"Mean IOU for class {class_} is {mean_iou_per_class:.3f}")
+        print(f"Mean IOU for class {class_} is {mean_iou_per_class:.5f}")
     class_ious[f"{class_}"] = mean_iou_per_class
   val_loss = np.mean(val_loss)
   return class_ious, val_loss
@@ -240,7 +246,7 @@ def train_model(model, epochs, freq, **model_kwargs):
         "val loss":val_loss,
         "epoch time": epoch_time
         })
-        print(f"Epoch:{epoch}, Train loss:{train_loss:.3f}, Val loss:{val_loss:.3f}, Epoch Time:{epoch_time:.3f} minutes")
+        print(f"Epoch:{epoch}, Train loss:{train_loss:.5f}, Val loss:{val_loss:.5f}, Epoch Time:{epoch_time:.5f} minutes")
 
         if epoch % freq == 0:
             plot_prediction(model, model_kwargs)
