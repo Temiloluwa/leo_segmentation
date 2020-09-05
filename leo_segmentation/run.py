@@ -18,7 +18,7 @@ import gc
 #args = parser.parse_args()
 #dataset = args.dataset
 
-dataset = "pascal_voc"
+dataset = "pascal_voc_raw"
 
 
 def train_model(config):

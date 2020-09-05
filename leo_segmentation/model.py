@@ -6,9 +6,8 @@ from torch.distributions import Normal
 from torch.nn import CrossEntropyLoss
 from torch.utils.tensorboard import SummaryWriter
 from  torch.nn import functional as F
-from utils import display_data_shape, get_named_dict, one_hot_target,\
-    softmax, sparse_crossentropy, calc_iou_per_class, log_data, load_config,\
-    summary_write_masks
+from utils import display_data_shape, get_named_dict, calc_iou_per_class,\
+    log_data, load_config, summary_write_masks
     
 class Flatten(nn.Module):
   def __init__(self):
