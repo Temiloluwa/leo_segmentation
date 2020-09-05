@@ -153,25 +153,25 @@ def prepare_inputs(data):
 
 def get_named_dict(metadata, batch):
     """Returns a named dict"""
-    tr_data, tr_data_masks, val_data, val_masks, _ = metadata
-    data_dict = { 'tr_data': prepare_inputs(tr_data[batch]),
-                  'tr_data_masks': prepare_inputs(tr_data_masks[batch]) ,
-                  'val_data':  prepare_inputs(val_data[batch]),
-                  'val_data_masks': prepare_inputs(val_masks[batch])}
+    tr_imgs, tr_masks, val_imgs, val_masks, _ = metadata
+    data_dict = { 'tr_imgs': prepare_inputs(tr_imgs[batch]),
+                  'tr_masks': prepare_inputs(tr_masks[batch]) ,
+                  'val_imgs':  prepare_inputs(val_imgs[batch]),
+                  'val_masks': prepare_inputs(val_masks[batch])}
     return edict(data_dict)
 
 
 def display_data_shape(metadata):
     """Displays data shape"""
     if type(metadata) == tuple:
-        tr_data, tr_data_masks, val_data, val_masks, _ = metadata
-        print(f"num tasks: {len(tr_data)}")
+        tr_imgs, tr_masks, val_imgs, val_masks, _ = metadata
+        print(f"num tasks: {len(tr_imgs)}")
     else:
-        tr_data, tr_data_masks, val_data, val_masks = metadata.tr_data,\
-            metadata.tr_data_masks, metadata.val_data, metadata.val_data_masks 
+        tr_imgs, tr_masks, val_imgs, val_masks = metadata.tr_imgs,\
+            metadata.tr_masks, metadata.val_imgs, metadata.val_masks 
    
-    print("tr_data shape: {},tr_data_masks shape: {}, val_data shape: {},val_masks shape: {}". \
-            format(tr_data.size(), tr_data_masks.size(), val_data.size(), val_masks.size()))
+    print("tr_imgs shape: {},tr_masks shape: {}, val_imgs shape: {},val_masks shape: {}". \
+            format(tr_imgs.size(), tr_masks.size(), val_imgs.size(), val_masks.size()))
     
 
 def log_data(msg, log_filename):

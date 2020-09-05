@@ -39,7 +39,8 @@ def train_model(config):
         episodes_completed = 0
     
     episodes =  config.hyperparameters.episodes
-    optimizer = torch.optim.Adam(leo.parameters(), lr=config.hyperparameters.outer_loop_lr)
+    optimizer_leo = torch.optim.Adam(leo.parameters(), lr=config.hyperparameters.outer_loop_lr)
+    optimizer_maml = torch.optim.Adam([leo.seg_weight, leo.seg_bias], lr=config.hyperparameters.outer_loop_lr)
 
     for episode in range(episodes_completed+1, episodes+1):
         train_stats.set_episode(episode)
@@ -47,19 +48,19 @@ def train_model(config):
         metadata = dataloader.get_batch_data()
         class_in_metadata = metadata[-1]
         metatrain_loss, train_stats = leo.compute_loss(metadata, train_stats)
-        optimizer.zero_grad()
+        optimizer_leo.zero_grad()
+        optimizer_maml.zero_grad()
         metatrain_loss.backward()
-        optimizer.step()
+        optimizer_leo.step()
+        optimizer_maml.step()
 
         if episode % config.checkpoint_interval == 0:
             save_model(leo, optimizer, config, edict(train_stats.get_latest_stats()))
             #writer.add_graph(leo, metadata[:-1])
             #writer.close()
           
-        leo.evaluate_val_data(metadata, class_in_metadata, train_stats, writer)
+        leo.evaluate_val_imgs(metadata, class_in_metadata, train_stats, writer)
         train_stats.disp_stats()
-        
-        
 
         if episode == episodes:
             return leo, metadata, class_in_metadata
