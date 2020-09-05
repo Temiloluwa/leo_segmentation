@@ -44,7 +44,7 @@ class EncoderBlock(nn.Module):
 
 def decoder_block(config, trans_in_channels, trans_out_channels, conv_out_channels, dropout=True):
     conv_trans = nn.ConvTranspose2d(trans_in_channels, trans_out_channels, kernel_size=4, stride=2, padding=1)
-    layers = [nn.ReLU(),
+    layers = [#nn.ReLU(),
               nn.Conv2d(conv_out_channels, conv_out_channels, kernel_size=3, stride=1, padding=1),
               nn.BatchNorm2d(conv_out_channels),
               nn.ReLU(),
@@ -60,11 +60,12 @@ class DecoderBlock(nn.Module):
     """
     def __init__(self, config):
         super(DecoderBlock, self).__init__()
-        self.conv_trans1, self.conv_1 = decoder_block(config, 1280, 8*4, 96 + 8*4)
-        self.conv_trans2, self.conv_2 = decoder_block(config, 96 + 8*4, 8*3, 32 + 8*3)
-        self.conv_trans3, self.conv_3 = decoder_block(config, 32 + 8*3, 8*2, 24 + 8*2)
-        self.conv_trans4, self.conv_4 = decoder_block(config, 24 + 8*2, 8, 16 + 8)
-        self.conv_trans_final = nn.ConvTranspose2d(16 + 8, 16 + 8, kernel_size=4, stride=2, padding=1)
+        base_chn = 8
+        self.conv_trans1, self.conv_1 = decoder_block(config, 1280, base_chn, 96 + base_chn)
+        self.conv_trans2, self.conv_2 = decoder_block(config, 96 + base_chn, base_chn*2, 32 + base_chn*2)
+        self.conv_trans3, self.conv_3 = decoder_block(config, 32 + base_chn*2, base_chn*3, 24 + base_chn*3)
+        self.conv_trans4, self.conv_4 = decoder_block(config, 24 + base_chn*3, base_chn*4, 16 + base_chn*4)
+        self.conv_trans_final = nn.ConvTranspose2d(16 + base_chn*4, 16 + base_chn*4, kernel_size=4, stride=2, padding=1)
        
     def forward(self, x, concat_features):
         o = self.conv_trans1(x)
@@ -95,7 +96,7 @@ class LEO(nn.Module):
         self.encoder = EncoderBlock()
         self.decoder = DecoderBlock(config.hyperparameters)
         self.device = torch.device("cuda:0" if torch.cuda.is_available() and config.use_gpu else "cpu")
-        seg_network =  nn.Conv2d(16 + 8 + 3 , 2, kernel_size=3, stride=1, padding=1)
+        seg_network =  nn.Conv2d(16 + 8*4 + 3 , 2, kernel_size=3, stride=1, padding=1)
         self.seg_weight = seg_network.weight.detach().to(self.device)
         self.seg_weight.requires_grad = True
         self.seg_bias = seg_network.bias.detach().to(self.device)
@@ -108,7 +109,10 @@ class LEO(nn.Module):
                 param.requires_grad = False
 
     def forward_encoder(self, x):
-        return self.encoder(x)
+        latents, features = self.encoder(x)
+        if not latents.requires_grad:
+            latents.requires_grad = True
+        return latents, features
 
     def forward_decoder(self, x, latents, weight, bias, features):
         o = self.decoder(latents, features)
@@ -119,8 +123,7 @@ class LEO(nn.Module):
     def forward(self, x, weight, bias, target, latents=None):
         if latents == None:
             latents, self.features = self.forward_encoder(x)
-            latents.requires_grad = True
-
+            
         pred = self.forward_decoder(x, latents, weight, bias, self.features)
         loss = self.loss_fn(pred, target.long())
         return loss, pred, latents

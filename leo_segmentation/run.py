@@ -38,6 +38,7 @@ def train_model(config):
     
     leo.freeze_encoder()
     episodes =  config.hyperparameters.episodes
+    #leo_parameters = [params for name, params in leo.named_parameters() if "encoder" not in name]
     optimizer_leo = torch.optim.Adam(leo.parameters(), lr=config.hyperparameters.outer_loop_lr)
     optimizer_maml = torch.optim.Adam([leo.seg_weight, leo.seg_bias], lr=config.hyperparameters.outer_loop_lr)
     
