@@ -37,5 +37,5 @@ def forward_encoder(self, data, mode):
         segmentation_weights= segmentation_weights.permute(1, 2, 3, 0)
         segmentation_weights = segmentation_weights.view(dim_list[1], dim_list[2], dim_list[3], self.config.data_params.num_classes, -1 )
         segmentation_weights = segmentation_weights.permute(3, 4, 0, 1, 2)
-        loss = self.calculate_inner_loss(data["tr_imgs_orig"], data["tr_masks"], segmentation_weights)
+        loss = self.forward(data["tr_imgs_orig"], data["tr_masks"], segmentation_weights)
         return loss, segmentation_weights

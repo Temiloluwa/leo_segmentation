@@ -97,15 +97,13 @@ class Datagenerator(Dataset):
                 assert _selected_class == selected_class, "wrong class (selected class)"
             
             img_paths = [i[0] for i in img_datasets.imgs if selected_class in i[0]]
-            mask_paths = [i[0] for i in mask_datasets.imgs if selected_class in i[0]]
             random.shuffle(img_paths)
-            random.shuffle(mask_paths)
-
+            
             n_val_per_class = config.n_val_per_class[self._data_type]
             n_val_per_class = len(img_paths) - n_train_per_class if n_val_per_class == "rest" else n_val_per_class
 
             img_paths = list(np.random.choice(img_paths, n_train_per_class + n_val_per_class, replace=False))
-            mask_paths = list(np.random.choice(mask_paths, n_train_per_class + n_val_per_class, replace=False))
+            mask_paths = [i.replace("images", "masks") for i in img_paths]
            
             data_path_assertions(img_paths[-1], "images")
             data_path_assertions(mask_paths[-1], "masks")

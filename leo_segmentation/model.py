@@ -31,25 +31,26 @@ class EncoderBlock(nn.Module):
     """
     def __init__(self):
         super(EncoderBlock, self).__init__()
-        self.layers = nn.ModuleList(list(models.vgg16_bn(pretrained=True).features))
+        self.layers = nn.ModuleList(list(models.mobilenet_v2(pretrained=True).features))
     
     def forward(self,x):
         features = []
-        output_layers = [4, 11, 21, 31, 41]
+        output_layers = [1, 3, 6, 13]
         for i, layer in enumerate(self.layers):
             x = layer(x)
             if i in output_layers:
                 features.append(x)
         return x, features
 
-def decoder_block(config, in_channels, out_channels, kernel_size, padding, dropout=True):
-    conv_trans = nn.ConvTranspose2d(in_channels, out_channels, kernel_size, stride=2)
-    layers = [nn.Conv2d(out_channels, out_channels, kernel_size, stride=1, padding=padding),
-              nn.BatchNorm2d(out_channels),
+def decoder_block(config, trans_in_channels, trans_out_channels, conv_out_channels, dropout=True):
+    conv_trans = nn.ConvTranspose2d(trans_in_channels, trans_out_channels, kernel_size=4, stride=2, padding=1)
+    layers = [nn.ReLU(),
+              nn.Conv2d(conv_out_channels, conv_out_channels, kernel_size=3, stride=1, padding=1),
+              nn.BatchNorm2d(conv_out_channels),
               nn.ReLU(),
              ]
     if dropout:
-        layers.extend(nn.Dropout(config.dropout_rate))
+        layers.append(nn.Dropout(config.dropout_rate))
     conv_block = nn.Sequential(*layers)
     return conv_trans, conv_block
  
@@ -59,28 +60,26 @@ class DecoderBlock(nn.Module):
     """
     def __init__(self, config):
         super(DecoderBlock, self).__init__()
-        self.conv_trans1, self.conv_1 = decoder_block(config, 8, 8, 3, 1)
-        self.conv_trans2, self.conv_2 = decoder_block(config, 8, 8, 3, 1)
-        self.conv_trans3, self.conv_3 = decoder_block(config, 8, 8, 3, 1)
-        self.conv_trans4, self.conv_4 = decoder_block(config, 8, 8, 3, 1)
-        self.conv_trans5, self.conv_5 = decoder_block(config, 8, 8, 3, 1)
-        
+        self.conv_trans1, self.conv_1 = decoder_block(config, 1280, 8*4, 96 + 8*4)
+        self.conv_trans2, self.conv_2 = decoder_block(config, 96 + 8*4, 8*3, 32 + 8*3)
+        self.conv_trans3, self.conv_3 = decoder_block(config, 32 + 8*3, 8*2, 24 + 8*2)
+        self.conv_trans4, self.conv_4 = decoder_block(config, 24 + 8*2, 8, 16 + 8)
+        self.conv_trans_final = nn.ConvTranspose2d(16 + 8, 16 + 8, kernel_size=4, stride=2, padding=1)
+       
     def forward(self, x, concat_features):
         o = self.conv_trans1(x)
         o = torch.cat([o, concat_features[-1]], dim=1)
         o = self.conv_1(o)
-        o = self.conv_trans2(x)
+        o = self.conv_trans2(o)
         o = torch.cat([o, concat_features[-2]], dim=1)
         o = self.conv_2(o)
-        o = self.conv_trans3(x)
+        o = self.conv_trans3(o)
         o = torch.cat([o, concat_features[-3]], dim=1)
         o = self.conv_3(o)
-        o = self.conv_trans4(x)
+        o = self.conv_trans4(o)
         o = torch.cat([o, concat_features[-4]], dim=1)
         o = self.conv_4(o)
-        o = self.conv_trans5(x)
-        o = torch.cat([o, concat_features[-5]], dim=1)
-        o = self.conv_5(o)
+        o = self.conv_trans_final(o)
         return o
 
 class LEO(nn.Module):
@@ -93,26 +92,36 @@ class LEO(nn.Module):
         self.mode = mode
         self.latent_size = config.hyperparameters.num_latents
         self.dense_input_shape = (28, 192, 256)
-        self.encoder = self.EncoderBlock()
-        self.decoder = self.DecoderBlock(config.hyperparameters)
-        seg_network =  nn.Conv2d(30, 2, kernel_size=3, stride=1, padding=0)
-        self.seg_weight = seg_network.weight
-        self.seg_bias = seg_network.bias
-        self.device  = torch.device("cuda:0" if torch.cuda.is_available() and config.use_gpu else "cpu")
+        self.encoder = EncoderBlock()
+        self.decoder = DecoderBlock(config.hyperparameters)
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() and config.use_gpu else "cpu")
+        seg_network =  nn.Conv2d(16 + 8 + 3 , 2, kernel_size=3, stride=1, padding=1)
+        self.seg_weight = seg_network.weight.detach().to(self.device)
+        self.seg_weight.requires_grad = True
+        self.seg_bias = seg_network.bias.detach().to(self.device)
+        self.seg_bias.requires_grad = True
         self.loss_fn = CrossEntropyLoss()
+
+    def freeze_encoder(self):
+        for name, param in self.named_parameters():
+            if "encoder" in name:
+                param.requires_grad = False
 
     def forward_encoder(self, x):
         return self.encoder(x)
 
-    def forward_decoder(self, x, latents, weight, bias):
-        o = self.decoder(latents)
+    def forward_decoder(self, x, latents, weight, bias, features):
+        o = self.decoder(latents, features)
         o = torch.cat([o, x], dim=1)
-        o = F.conv2d(x, weight, bias)
+        o = F.conv2d(o, weight, bias, padding=1)
         return o
 
-    def calculate_inner_loss(self, x, weight, bias, target, latents=None):
-        latents = latents if latents else self.forward_encoder(x)
-        pred = self.forward_decoder(x, latents, weight, bias)
+    def forward(self, x, weight, bias, target, latents=None):
+        if latents == None:
+            latents, self.features = self.forward_encoder(x)
+            latents.requires_grad = True
+
+        pred = self.forward_decoder(x, latents, weight, bias, self.features)
         loss = self.loss_fn(pred, target.long())
         return loss, pred, latents
         
@@ -128,13 +137,13 @@ class LEO(nn.Module):
             segmentation_weights : shape(num_classes, num_eg_per_class, channels, H, W)
         """
         inner_lr = self.config.hyperparameters.inner_loop_lr
-        tr_loss, _ , latents = self.calculate_inner_loss(x, weight, bias, target)
+        tr_loss, _ , latents = self.forward(x, weight, bias, target)
         #initial_latents = latents.clone()   
         for _ in range(self.config.hyperparameters.num_adaptation_steps):
             latents_grad = torch.autograd.grad(tr_loss, [latents], create_graph=False)[0]
             with torch.no_grad():
                 latents -= inner_lr * latents_grad
-            tr_loss, _ , latents  = self.calculate_inner_loss(x, weight, bias, target, latents)
+            tr_loss, _ , latents  = self.forward(x, weight, bias, target, latents)
         return tr_loss 
 
     def finetuning_inner_loop(self, data, tr_loss, weight, bias):
@@ -148,24 +157,14 @@ class LEO(nn.Module):
             val_loss (tensor_0shape) : computed as crossentropyloss (groundtruth--> val_imgs_mask, prediction--> einsum(val_imgs, segmentation_weights))
         """
         finetuning_lr = self.config.hyperparameters.finetuning_lr
-        grad_weight, grad_bias = torch.autograd.grad(tr_loss, [weight, bias])
-        updated_weight = weight - finetuning_lr * grad_weight
-        updated_bias = bias - finetuning_lr * grad_bias
-        for _ in range(self.config.hyperparameters.num_finetuning_steps - 1):
-            grad_weight, grad_bias = torch.autograd.grad(tr_loss, [updated_weight, updated_bias])
+        for _ in range(self.config.hyperparameters.num_finetuning_steps):
+            grad_weight, grad_bias = torch.autograd.grad(tr_loss, [weight, bias])
             with torch.no_grad():
-                updated_weight -= finetuning_lr * grad_weight
-                updated_bias -= finetuning_lr * grad_bias
-            tr_loss, _ , _  = self.calculate_inner_loss(data.tr_imgs, updated_weight, updated_bias, data.tr_masks)
-        val_loss, _, _ = self.calculate_inner_loss(data.val_imgs, updated_weight, updated_bias, data.val_masks)
+                weight -= finetuning_lr * grad_weight
+                bias -= finetuning_lr * grad_bias
+            tr_loss, _ , _  = self.forward(data.tr_imgs, weight, bias, data.tr_masks)
+        val_loss, _, _ = self.forward(data.val_imgs, weight, bias, data.val_masks)
         return val_loss
-
-    def forward(self, tr_imgs, tr_masks, val_imgs, val_masks):
-        metadata = (tr_imgs, tr_masks, val_imgs, val_masks, "") 
-        data_dict = get_named_dict(metadata, 0)
-        latents, kl_loss = self.forward_encoder(data_dict.tr_imgs)
-        inner_loss, _, _ = self.forward_decoder(data_dict.tr_imgs, latents, data_dict.tr_masks)
-        return inner_loss + kl_loss
 
     def compute_loss(self, metadata, train_stats, mode="meta_train"):
         """
@@ -187,8 +186,10 @@ class LEO(nn.Module):
 
         for batch in range(num_tasks):
             data_dict = get_named_dict(metadata, batch)
-            tr_loss = self.leo_inner_loop(data_dict.tr_imgs, self.seg_weight, self.seg_bias, data_dict.tr_masks)
-            val_loss = self.finetuning_inner_loop(data_dict, tr_loss, self.seg_weight, self.seg_bias)
+            weights = self.seg_weight.clone()
+            bias = self.seg_bias.clone()
+            tr_loss = self.leo_inner_loop(data_dict.tr_imgs, weights, bias, data_dict.tr_masks)
+            val_loss = self.finetuning_inner_loop(data_dict, tr_loss, weights, bias)
             total_val_loss.append(val_loss)
 
         total_val_loss = sum(total_val_loss)/len(total_val_loss)
@@ -205,8 +206,9 @@ class LEO(nn.Module):
         num_tasks = len(metadata[0])
         for batch in range(num_tasks):
             data_dict = get_named_dict(metadata, batch)
-            latents, _ = self.forward_encoder(data_dict.val_imgs)
-            _, _,  predictions = self.forward_decoder(data_dict.val_imgs, latents, data_dict.val_masks)
+            weights = self.seg_weight.clone()
+            bias = self.seg_bias.clone()
+            _, predictions, _  = self.forward(data_dict.val_imgs, weights, bias, data_dict.val_masks)
             iou = calc_iou_per_class(predictions, data_dict.val_masks)
             batch_msg = f"\nClass: {classes[batch]}, Episode: {train_stats.episode}, Val IOU: {iou}"
             print(batch_msg[1:])

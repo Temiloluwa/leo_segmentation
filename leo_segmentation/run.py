@@ -1,10 +1,8 @@
 from data import Datagenerator, TrainingStats
 from model import LEO, load_model, save_model
-from  torch.nn import MSELoss
 from easydict import EasyDict as edict
 from torch.utils.tensorboard import SummaryWriter
 from utils import load_config, check_experiment, get_named_dict
-from functools import partial
 import numpy as np
 import torch.optim as optim
 import os
@@ -38,10 +36,11 @@ def train_model(config):
         train_stats = TrainingStats(config)
         episodes_completed = 0
     
+    leo.freeze_encoder()
     episodes =  config.hyperparameters.episodes
     optimizer_leo = torch.optim.Adam(leo.parameters(), lr=config.hyperparameters.outer_loop_lr)
     optimizer_maml = torch.optim.Adam([leo.seg_weight, leo.seg_bias], lr=config.hyperparameters.outer_loop_lr)
-
+    
     for episode in range(episodes_completed+1, episodes+1):
         train_stats.set_episode(episode)
         dataloader = Datagenerator(config, dataset, data_type="meta_train")
