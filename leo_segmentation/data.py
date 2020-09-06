@@ -16,7 +16,7 @@ class Datagenerator(Dataset):
         self._dataset = dataset
         self.path = path
         self._data_type = data_type
-        self.classes_dict = meta_classes_selector(config, dataset, generate_new_metaclasses)
+        self.classes_dict = meta_classes_selector(config, dataset, path, generate_new_metaclasses)
 
     def __len__(self):
         return len(self._dataset)
