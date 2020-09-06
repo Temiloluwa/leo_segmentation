@@ -256,60 +256,11 @@ def summary_write_masks(batch_data, writer, grid_title, ground_truth=False):
 
     writer.add_image(grid_title, masks_grid, episode)
 
-def load_model(config):
-    """
-    Loads the model
-    Args:
-        config - global config
-        **************************************************
-        Note: The episode key in the experiment dict
-        implies the checkpoint that should be loaded
-        when the model resumes training. If episode is
-        -1, then the latest model is loaded else it loads
-        the checkpoint at the supplied episode
-        *************************************************
-    Returns:
-        leo :loaded model that was saved
-        optimizer: loaded weights of optimizer
-        stats: stats for the last saved model
-    """
-    experiment = config.experiment
-    model_dir = os.path.join(config.data_path, "models", "experiment_{}" \
-                             .format(experiment.number))
-
-    checkpoints = os.listdir(model_dir)
-    checkpoints.pop()
-    max_cp = max([int(cp[11]) for cp in checkpoints])
-    # if experiment.episode == -1, load latest checkpoint
-    episode = max_cp if experiment.episode == -1 else experiment.episode
-    checkpoint_path = os.path.join(model_dir, f"checkpoint_{episode}.pth.tar")
-    checkpoint = torch.load(checkpoint_path)
-
-    log_filename = os.path.join(model_dir, "model_log.txt")
-    msg = f"\n*********** checkpoint {episode} was loaded **************"
-    log_data(msg, log_filename)
-
-    leo = LEO(config)
-    optimizer = torch.optim.Adam(leo.parameters(), lr=config.hyperparameters.outer_loop_lr)
-    leo.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    mode = checkpoint['mode']
-    total_val_loss = checkpoint['total_val_loss']
-    kl_loss = checkpoint['kl_loss']
-
-    stats = {
-        "mode": mode,
-        "episode": episode,
-        "kl_loss": kl_loss,
-        "total_val_loss": total_val_loss
-    }
-
-    return leo, optimizer, stats
-
 
 def save_model(model, optimizer, config, stats):
     """
     Save the model while training based on check point interval
+
     if episode number is not -1 then a prompt to delete checkpoints occur if
     checkpoints for that episode number exits.
     This only occurs if the prompt_deletion flag in the experiment dictionary
@@ -319,6 +270,7 @@ def save_model(model, optimizer, config, stats):
         optimizer - optimized weights
         config - global config
         stats - dictionary containing stats for the current episode
+
     Returns:
     """
     data_to_save = {
@@ -366,6 +318,57 @@ def save_model(model, optimizer, config, stats):
                 print(f"You have {3 - trials} left")
                 if trials == 3:
                     raise ValueError("Supply the correct answer to the question")
+
+
+def load_model(config):
+    """
+    Loads the model
+    Args:
+        config - global config
+        **************************************************
+        Note: The episode key in the experiment dict
+        implies the checkpoint that should be loaded
+        when the model resumes training. If episode is
+        -1, then the latest model is loaded else it loads
+        the checkpoint at the supplied episode
+        *************************************************
+    Returns:
+        leo :loaded model that was saved
+        optimizer: loaded weights of optimizer
+        stats: stats for the last saved model
+    """
+    experiment = config.experiment
+    model_dir = os.path.join(config.data_path, "models", "experiment_{}" \
+                             .format(experiment.number))
+
+    checkpoints = os.listdir(model_dir)
+    checkpoints = [i for i in checkpoints if os.path.splitext(i)[-1] == ".tar"]
+    max_cp = max([int(cp.split(".")[0].split("_")[1]) for cp in checkpoints])
+    # if experiment.episode == -1, load latest checkpoint
+    episode = max_cp if experiment.episode == -1 else experiment.episode
+    checkpoint_path = os.path.join(model_dir, f"checkpoint_{episode}.pth.tar")
+    checkpoint = torch.load(checkpoint_path)
+
+    log_filename = os.path.join(model_dir, "model_log.txt")
+    msg = f"\n*********** checkpoint {episode} was loaded **************"
+    log_data(msg, log_filename)
+
+    leo = LEO(config)
+    optimizer = torch.optim.Adam(leo.parameters(), lr=config.hyperparameters.outer_loop_lr)
+    leo.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    mode = checkpoint['mode']
+    total_val_loss = checkpoint['total_val_loss']
+    kl_loss = checkpoint['kl_loss']
+
+    stats = {
+        "mode": mode,
+        "episode": episode,
+        "kl_loss": kl_loss,
+        "total_val_loss": total_val_loss
+    }
+
+    return leo, optimizer, stats
 
 def get_in_sequence(data):
     """
