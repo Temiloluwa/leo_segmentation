@@ -12,13 +12,8 @@ class Datagenerator(Dataset):
     """Data generator for meta train, meta val and meta test"""
 
     def __init__(self, config, dataset, data_type, generate_new_metaclasses=False):
-        #issue: config and dataset exchanged
-        if config == "pascal_voc":
-            self._config = dataset
-            self._dataset = config
-        else:
-            self._config = config
-            self._dataset = dataset
+        self._config = config
+        self._dataset = dataset
         self._data_type = data_type
         self.classes_dict = meta_classes_selector(config, dataset, generate_new_metaclasses)
 
@@ -68,13 +63,21 @@ class Datagenerator(Dataset):
                 assert _train_or_val == train_or_val, "wrong data split (train or val)"
                 assert _img_or_mask == img_or_mask, "wrong data type (image or mask)"
                 assert _selected_class == selected_class, "wrong class (selected class)"
-                #print('_selected_class', _selected_class)
-                #print('selected_class', selected_class)
+
             img_tr_path = os.path.join(train_root_path, "images")
+<<<<<<< HEAD
             img_datasets_train = datasets.DatasetFolder(root=img_tr_path, loader=loader(img_tr_path, selected_class), extensions=".npy")
             img_vl_path = os.path.join(val_root_path, "images")
             img_datasets_val = datasets.DatasetFolder(root=img_vl_path, loader=loader(img_vl_path, selected_class), extensions=".npy")
             
+=======
+            img_datasets_train = datasets.DatasetFolder(root=img_tr_path, loader=loader(img_tr_path, selected_class),
+                                                        extensions=".npy")
+            img_vl_path = os.path.join(val_root_path, "images")
+            img_datasets_val = datasets.DatasetFolder(root=img_vl_path, loader=loader(img_vl_path, selected_class),
+                                                      extensions=".npy")
+
+>>>>>>> 9cf2f53... LEO for Segmentation for Pascal VOC
             img_paths_train = [i for i in img_datasets_train.loader if selected_class in i]
             random.shuffle(img_paths_train)
             img_paths_train = list(np.random.choice(img_paths_train, n_train_per_class, replace=False))
@@ -87,7 +90,11 @@ class Datagenerator(Dataset):
 
             mask_paths_train = [i.replace("images", "masks") for i in img_paths_train]
             mask_paths_val = [i.replace("images", "masks") for i in img_paths_val]
+<<<<<<< HEAD
             
+=======
+
+>>>>>>> 9cf2f53... LEO for Segmentation for Pascal VOC
             tr_img_paths.extend(img_paths_train)
             tr_masks_paths.extend(mask_paths_train)
             val_img_paths.extend(img_paths_val)
@@ -100,8 +107,14 @@ class Datagenerator(Dataset):
 
         assert len(classes_selected) == len(set(classes_selected)), "classes are not unique"
 
+<<<<<<< HEAD
         return numpy_to_tensor(np.array(tr_imgs)), numpy_to_tensor(np.array(tr_masks)),\
                numpy_to_tensor(np.array(val_imgs)), numpy_to_tensor(np.array(val_masks))
+=======
+        return numpy_to_tensor(np.array(np.array(tr_imgs))), numpy_to_tensor(np.array(np.array(tr_masks))), \
+               numpy_to_tensor(np.array(np.array(val_imgs))), numpy_to_tensor(np.array(np.array(val_masks))), \
+               classes_selected
+>>>>>>> 9cf2f53... LEO for Segmentation for Pascal VOC
 
     def get_batch_data(self):
         return self.__getitem__(0)

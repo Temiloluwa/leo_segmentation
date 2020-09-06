@@ -58,11 +58,11 @@ class LEO(nn.Module):
         self.config = config
         self.mode = mode
         self.loss = nn.CrossEntropyLoss()
-        self.enc1 = _EncoderBlock(14, 32)
-        self.enc2 = _EncoderBlock(32, 64, dropout=True)
-        self.dec2 = _DecoderBlock(64, 32)
-        self.dec1 = _DecoderBlock(32, 14) #num of channels in decoder output must be equal to input
-        self.RelationNetwork = RelationNetwork(128, 64)
+        self.enc1 = _EncoderBlock(14, 16)
+        self.enc2 = _EncoderBlock(16, 32, dropout=True)
+        self.dec2 = _DecoderBlock(32, 16)
+        self.dec1 = _DecoderBlock(16, 14) #num of channels in decoder output must be equal to input
+        self.RelationNetwork = RelationNetwork(64, 32)
 
     def encoder(self, embeddings):
         enc1 = self.enc1(embeddings)
@@ -74,7 +74,7 @@ class LEO(nn.Module):
         dec1 = self.dec1(dec2)
         return dec1
 
-    def leo_inner_loop(self, data, latents):
+    def leo_inner_loop(self, data, latents, device):
         """
         This function does "latent code optimization" that is back propagation  until latent codes and
         updating the latent weights
@@ -87,7 +87,7 @@ class LEO(nn.Module):
         """
         inner_lr = self.config["hyperparameters"]["inner_loop_lr"]
         initial_latents = latents
-        tr_loss, _ = self.forward_decoder(data, latents)
+        tr_loss, _ = self.forward_decoder(data, latents, device)
 
         for _ in range(self.config["hyperparameters"]["num_adaptation_steps"]):
             tr_loss.backward()
@@ -96,10 +96,10 @@ class LEO(nn.Module):
             with torch.no_grad():
                 latents -= inner_lr * grad
             tr_loss.zero_()
-            tr_loss, segmentation_weights = self.forward_decoder(data, latents)
+            tr_loss, segmentation_weights = self.forward_decoder(data, latents, device)
         return tr_loss, segmentation_weights
 
-    def finetuning_inner_loop(self, data, leo_loss, segmentation_weights):
+    def finetuning_inner_loop(self, data, leo_loss, segmentation_weights, device):
         """
         This function does "segmentation_weights optimization"
         Args:
@@ -115,12 +115,12 @@ class LEO(nn.Module):
 
             with torch.no_grad():
                 segmentation_weights -= finetuning_lr * grad[0]
-            leo_loss = self.calculate_inner_loss(data["tr_data_orig"], data["tr_data_masks"], segmentation_weights)
-            val_loss = self.calculate_inner_loss(data["val_data_orig"], data["val_data_masks"], segmentation_weights)
+            leo_loss = self.calculate_inner_loss(data["tr_data_orig"], data["tr_data_masks"], segmentation_weights, device)
+            val_loss = self.calculate_inner_loss(data["val_data_orig"], data["val_data_masks"], segmentation_weights, device)
 
         return val_loss
 
-    def forward_encoder(self, data, mode):
+    def forward_encoder(self, data, mode, device):
         """
         This function generates latent codes  from the input data pass it through relation network and
         computes kl_loss after sampling
@@ -133,16 +133,16 @@ class LEO(nn.Module):
             kl_loss (tensor_0shape): how much the distribution sampled from latent code deviates from normal distribution
         """
         self.mode = mode
+        data = data.to(device)
         latent = self.encoder(data)
-
         relation_network_outputs = self.relation_network(latent)
         latent_dist_params = self.average_codes_per_class(relation_network_outputs)
-        latents, kl_loss = self.possibly_sample(latent_dist_params)
+        latents, kl_loss = self.possibly_sample(latent_dist_params, device)
         latent_leaf = latents.clone().detach() #to make latents the leaf node to perform backpropagation until latents
         latent_leaf.requires_grad_(True)
         return latent_leaf, kl_loss
 
-    def forward_decoder(self, data, latents):
+    def forward_decoder(self, data, latents, device):
         """
         This function decodes the latent codes to get the segmentation weights that has same shape as input tensor
         and computes the leo cross entropy segmentation loss.
@@ -159,10 +159,10 @@ class LEO(nn.Module):
         segmentation_weights= segmentation_weights.permute(1, 2, 3, 0)
         segmentation_weights = segmentation_weights.view(dim_list[1], dim_list[2], dim_list[3], self.config.data_params.num_classes, -1 )
         segmentation_weights = segmentation_weights.permute(3, 4, 0, 1, 2)
-        loss = self.calculate_inner_loss(data["tr_data_orig"], data["tr_data_masks"], segmentation_weights)
+        loss = self.calculate_inner_loss(data["tr_data_orig"], data["tr_data_masks"], segmentation_weights, device)
         return loss, segmentation_weights
 
-    def calculate_inner_loss(self, inputs, true_outputs, segmentation_weights):
+    def calculate_inner_loss(self, inputs, true_outputs, segmentation_weights, device):
         """
         This function finds the prediction mask and calculates the loss of prediction_mask from ground_truth mask
         Args:
@@ -172,6 +172,8 @@ class LEO(nn.Module):
         Returns:
             loss (tensor_0shape): computed as crossentropyloss (groundtruth--> tr/val_data_mask, prediction--> einsum(tr/val_data, segmentation_weights))
         """
+        inputs = inputs.to(device)
+        true_outputs = true_outputs.to(device)
         output_mask = self.predict(inputs, segmentation_weights)
         # output_mask = torch.argmax(prediction, dim=2) #needed to compute accuracy
         dim_list = list(output_mask.size())
@@ -239,12 +241,14 @@ class LEO(nn.Module):
         codes = codes.permute(3, 0, 1, 2)
         return codes
 
-    def possibly_sample(self, distribution_params, stddev_offset=0.):
+    def possibly_sample(self, distribution_params, device, stddev_offset=0.):
         dim_list = list(distribution_params.size())
         means, stddev = torch.split(distribution_params, int(dim_list[1]/2), dim = 1)
         #stddev = torch.exp(unnormalized_stddev)
         stddev -= (1. - stddev_offset) #try your ideas
-        stddev = torch.max(stddev, torch.tensor(1e-10))
+        temp = torch.tensor(1e-10)
+        temp = temp.to(device)
+        stddev = torch.max(stddev, temp)
         distribution = Normal(means, stddev)
         if not self.mode == 'meta_train':
             return means, 0.0

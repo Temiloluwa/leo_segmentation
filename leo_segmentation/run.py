@@ -17,7 +17,7 @@ args = parser.parse_args()
 dataset = args.dataset
 
 
-def compute_loss(model, meta_dataloader, train_stats, config, iteration = 0, mode="meta_train"):
+def compute_loss(model, meta_dataloader, train_stats, config, device, iteration = 0, mode="meta_train"):
     """
     Computes the  outer loop loss
     Args:
@@ -36,18 +36,19 @@ def compute_loss(model, meta_dataloader, train_stats, config, iteration = 0, mod
     total_val_loss = []
     for batch in range(num_tasks):
         data_dict = get_named_dict(metadata, batch)
-        latents, kl_loss = model.forward_encoder(data_dict.tr_data, mode)
-        per_batch_tr_loss, adapted_segmentation_weights = model.leo_inner_loop(data_dict, latents)
-        per_batch_val_loss = model.finetuning_inner_loop(data_dict, per_batch_tr_loss, adapted_segmentation_weights)
-        per_batch_val_loss += config.kl_weight * kl_loss
+        print(data_dict.tr_data.is_cuda)
+        latents, kl_loss = model.forward_encoder(data_dict.tr_data, mode, device)
+        per_batch_tr_loss, adapted_segmentation_weights = model.leo_inner_loop(data_dict, latents, device)
+        per_batch_val_loss = model.finetuning_inner_loop(data_dict, per_batch_tr_loss, adapted_segmentation_weights, device)
+        per_batch_val_loss = per_batch_val_loss + (config.kl_weight * kl_loss)
         if mode == "meta_train":
             writer.add_scalar('train_loss', per_batch_tr_loss, iteration)
             writer.add_scalar('val_loss', per_batch_val_loss, iteration)
-            print(iteration)
+            #print(iteration)
             iteration += 1
         total_val_loss.append(per_batch_val_loss)
         kl_losses.append(kl_loss)
-        print("Batch number", batch)
+        #print("Batch number", batch)
     stats_data = {
         "mode": mode,
         "kl_loss": sum(kl_losses) / len(kl_losses),
@@ -59,7 +60,7 @@ def compute_loss(model, meta_dataloader, train_stats, config, iteration = 0, mod
 
 def train_model(config):
     """Trains Model"""
-    device = torch.device("cuda:0" if torch.cuda.is_available() and config.use_gpu else "cpu")
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     if check_experiment(config):
         leo, optimizer, stats = load_model(config)
         episodes_completed = stats["episode"]
@@ -81,7 +82,7 @@ def train_model(config):
     for episode in range(episodes_completed + 1, episodes + 1):
         train_stats.set_episode(episode)
         dataloader = Datagenerator(config, dataset, data_type="meta_train", generate_new_metaclasses=False)
-        metatrain_loss, train_stats, itr = compute_loss(leo, dataloader, train_stats, config, iteration = itr)
+        metatrain_loss, train_stats, itr = compute_loss(leo, dataloader, train_stats, config, device, iteration = itr)
         metatrain_loss = sum(metatrain_loss) / len(metatrain_loss)
         writer.add_scalar('metatrain_loss', metatrain_loss, episode)
         metatrain_gradients, metatrain_variables = leo.grads_and_vars(metatrain_loss)
@@ -94,11 +95,11 @@ def train_model(config):
 
         train_stats.disp_stats()
         dataloader = Datagenerator(dataset, config, data_type="meta_val")
-        _, train_stats, _ = compute_loss(leo, dataloader, train_stats, config, mode="meta_val")
+        _, train_stats, _ = compute_loss(leo, dataloader, train_stats, config, device, mode="meta_val")
         train_stats.disp_stats()
 
         dataloader = Datagenerator(dataset, config, data_type="meta_test")
-        _, train_stats, _ = compute_loss(leo, dataloader, train_stats, config, mode="meta_test")
+        _, train_stats, _ = compute_loss(leo, dataloader, train_stats, config, device, mode="meta_test")
         train_stats.disp_stats()
 
 
