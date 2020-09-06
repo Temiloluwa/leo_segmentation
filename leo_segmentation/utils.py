@@ -14,7 +14,7 @@ def load_config(config_path: str = "data/config.json"):
     return edict(config)
 
 
-def meta_classes_selector(config, dataset, path, generate_new, shuffle_classes=False):
+def meta_classes_selector(config, dataset, generate_new, shuffle_classes=False):
     """
     Returns a dictionary containing classes for meta_train, meta_val, and meta_test_splits
     e.g if total available classes are:["aeroplane", "dog", "cat", "sheep", "window"]
@@ -34,7 +34,7 @@ def meta_classes_selector(config, dataset, path, generate_new, shuffle_classes=F
         if os.path.exists(data_path) and not generate_new:
             meta_classes_splits = load_pickled_data(data_path)
         else:
-            classes = os.listdir(os.path.join(path, "data", f"{dataset}", "train", "images"))
+            classes = os.listdir(os.path.join(os.path.dirname(__file__), "data", f"{dataset}", "train", "images"))
             if shuffle_classes:
                 random.shuffle(classes)
             meta_classes_splits = {"meta_train": classes[:ratio[0]],
