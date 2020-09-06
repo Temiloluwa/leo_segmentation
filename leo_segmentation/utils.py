@@ -6,7 +6,6 @@ import torchvision
 from matplotlib import pyplot as plt
 from easydict import EasyDict as edict
 
-
 def load_config(config_path: str = "data/config.json"):
     """Loads config file"""
     with open(config_path, "r") as f:
@@ -28,6 +27,11 @@ def meta_classes_selector(config, dataset, generate_new, shuffle_classes=False):
     Returns:
         meta_classes_splits(dict): contains classes for meta_train, meta_val and meta_test
     """
+    #issue with config, dataset exchange
+    if config == "pascal_voc":
+        temp = config
+        config = dataset
+        dataset = temp
     ratio = config.data_params.meta_train_val_test_ratio
     if dataset in config.datasets:
         data_path = os.path.join(os.path.dirname(__file__), config.data_path, f"{dataset}", "meta_classes.pkl")

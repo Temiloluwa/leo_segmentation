@@ -1,7 +1,7 @@
-from utils import load_config, check_experiment, load_model, save_model, \
+from utils import load_config, check_experiment,  \
     display_data_shape, get_named_dict
 from data import Datagenerator, TrainingStats
-from model import LEO
+from model import LEO, load_model, save_model
 from torch.nn import MSELoss
 from easydict import EasyDict as edict
 import torch.optim as optim
