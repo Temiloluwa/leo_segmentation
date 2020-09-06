@@ -11,9 +11,10 @@ import os
 class Datagenerator(Dataset):
     """Data generator for meta train, meta val and meta test"""
 
-    def __init__(self, config, dataset, data_type, generate_new_metaclasses=False):
+    def __init__(self, config, dataset, path, data_type, generate_new_metaclasses=False):
         self._config = config
         self._dataset = dataset
+        self.path = path
         self._data_type = data_type
         self.classes_dict = meta_classes_selector(config, dataset, generate_new_metaclasses)
 

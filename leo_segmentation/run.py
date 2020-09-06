@@ -16,6 +16,7 @@ parser.add_argument("-d", "--dataset", type=str, nargs=1, default="pascal_voc")
 args = parser.parse_args()
 dataset = args.dataset
 
+dataset_path = 'F:\Git_rep\leo_segmentation\leo_segmentation'
 
 def compute_loss(model, meta_dataloader, train_stats, config, device, iteration = 0, mode="meta_train"):
     """
@@ -81,7 +82,7 @@ def train_model(config):
     itr = 1
     for episode in range(episodes_completed + 1, episodes + 1):
         train_stats.set_episode(episode)
-        dataloader = Datagenerator(config, dataset, data_type="meta_train", generate_new_metaclasses=False)
+        dataloader = Datagenerator(config, dataset, dataset_path, data_type="meta_train", generate_new_metaclasses=False)
         metatrain_loss, train_stats, itr = compute_loss(leo, dataloader, train_stats, config, device, iteration = itr)
         metatrain_loss = sum(metatrain_loss) / len(metatrain_loss)
         writer.add_scalar('metatrain_loss', metatrain_loss, episode)
