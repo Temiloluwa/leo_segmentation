@@ -5,6 +5,7 @@ from torch import nn
 import numpy as np
 from torch.distributions import Normal
 from utils import log_data
+import os
 
 class _EncoderBlock(nn.Module):
     def __init__(self, in_channels, out_channels,  dropout=False):
