@@ -182,6 +182,7 @@ class LEO(nn.Module):
         target = true_outputs.clone()
         true_outputs[target > self.config["data_params"]["num_classes"]-1] = 0 #temporary sample data improper
         loss = self.loss(output_mask.type(torch.FloatTensor), true_outputs.squeeze(1).type(torch.LongTensor))
+    
         return loss
 
     def relation_network(self, latents):

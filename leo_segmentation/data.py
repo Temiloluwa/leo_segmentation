@@ -55,12 +55,11 @@ class Datagenerator(Dataset):
             val_img_paths = []
             val_masks_paths = []
 
-            def loader(data_path):
+            def loader(data_path, selected_class):
                 paths_ = []
-                for sub_fn in os.listdir(data_path):
-                    sub_fn_path = os.path.join(data_path, sub_fn)
-                    for fn in os.listdir(sub_fn_path):
-                        paths_.append(os.path.join(sub_fn_path, fn))
+                sub_fn_path = os.path.join(data_path, selected_class)
+                for fn in os.listdir(sub_fn_path):
+                    paths_.append(os.path.join(sub_fn_path, fn))
                 return paths_
 
             def data_path_assertions(data_path, img_or_mask, train_or_val):
@@ -72,15 +71,10 @@ class Datagenerator(Dataset):
                 #print('_selected_class', _selected_class)
                 #print('selected_class', selected_class)
             img_tr_path = os.path.join(train_root_path, "images")
-            img_datasets_train = datasets.DatasetFolder(root=img_tr_path, loader=loader(img_tr_path), extensions=".npy")
+            img_datasets_train = datasets.DatasetFolder(root=img_tr_path, loader=loader(img_tr_path, selected_class), extensions=".npy")
             img_vl_path = os.path.join(val_root_path, "images")
-            img_datasets_val = datasets.DatasetFolder(root=img_vl_path, loader=loader(img_vl_path), extensions=".npy")
-            msk_tr_path = os.path.join(train_root_path, "masks")
-            mask_datasets_train = datasets.DatasetFolder(root=msk_tr_path, loader=loader(msk_tr_path),
-                                                         extensions=".npy")
-            msk_vl_path = os.path.join(val_root_path, "masks")
-            mask_datasets_val = datasets.DatasetFolder(root=msk_vl_path, loader=loader(msk_vl_path), extensions=".npy")
-
+            img_datasets_val = datasets.DatasetFolder(root=img_vl_path, loader=loader(img_vl_path, selected_class), extensions=".npy")
+            
             img_paths_train = [i for i in img_datasets_train.loader if selected_class in i]
             random.shuffle(img_paths_train)
             img_paths_train = list(np.random.choice(img_paths_train, n_train_per_class, replace=False))
@@ -91,21 +85,14 @@ class Datagenerator(Dataset):
             img_paths_val = list(np.random.choice(img_paths_val, n_val_per_class, replace=False))
             data_path_assertions(img_paths_val[-1], "images", "val")
 
-            mask_paths_train = [i for i in mask_datasets_train.loader if selected_class in i]
-            random.shuffle(mask_paths_train)
-            mask_paths_train = list(np.random.choice(mask_paths_train, n_train_per_class, replace=False))
-            data_path_assertions(mask_paths_train[-1], "masks", "train")
-
-            mask_paths_val = [i for i in mask_datasets_val.loader if selected_class in i]
-            random.shuffle(mask_paths_val)
-            mask_paths_val = list(np.random.choice(mask_paths_val, n_val_per_class, replace=False))
-            data_path_assertions(mask_paths_val[-1], "masks", "val")
-
+            mask_paths_train = [i.replace("images", "masks") for i in img_paths_train]
+            mask_paths_val = [i.replace("images", "masks") for i in img_paths_val]
+            
             tr_img_paths.extend(img_paths_train)
             tr_masks_paths.extend(mask_paths_train)
             val_img_paths.extend(img_paths_val)
             val_masks_paths.extend(mask_paths_val)
-
+            
             tr_imgs.append(np.array([load_npy(i) for i in tr_img_paths]))
             tr_masks.append(np.array([load_npy(i) for i in tr_masks_paths]))
             val_imgs.append(np.array([load_npy(i) for i in val_img_paths]))
@@ -113,7 +100,7 @@ class Datagenerator(Dataset):
 
         assert len(classes_selected) == len(set(classes_selected)), "classes are not unique"
 
-        return numpy_to_tensor(np.array(tr_imgs)), numpy_to_tensor(np.array(tr_masks)), \
+        return numpy_to_tensor(np.array(tr_imgs)), numpy_to_tensor(np.array(tr_masks)),\
                numpy_to_tensor(np.array(val_imgs)), numpy_to_tensor(np.array(val_masks))
 
     def get_batch_data(self):
