@@ -13,11 +13,13 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import pickle
 import os
+import numpy as np
 from collections import OrderedDict, Counter
 from tqdm import tqdm
 from PIL import Image
-from model import init_mobilenet_v2_backbone, init_xception_backbone 
+from model import mobilenet_v2_encoder, Decoder
 import time
+import itertools
 
 physical_devices = tf.config.list_physical_devices('GPU')
 try:
@@ -45,20 +47,43 @@ def save_npy(np_array, filename):
 def rgb2gray(rgb):
     return np.dot(rgb[...,:3], [0.2989, 0.5870, 0.1140])
 
-def test_saved_model(model, chosen_model, inputs_imgs, img_dims):
-    oracle = model(inputs_imgs)
-    retrieved_model = tf.saved_model.load("./data/embeddings_ckpt")
-    retrieved_outputs = retrieved_model(inputs_imgs)
+def test_saved_model(encoder, decoder, chosen_encoder, input_imgs, img_dims):
+    oracle = forward_model(encoder, decoder, input_imgs)
+    retrieved_encoder = chosen_encoder(img_dims)
+    retrieved_encoder.load_weights("./data/embedding_ckpt/encoder_weights")
+    retrieved_decoder = Decoder()
+    retrieved_decoder.load_weights("./data//embedding_ckpt/decoder_weights")
+    retrieved_outputs = forward_model(retrieved_encoder, retrieved_decoder, input_imgs)
     test_types = ["final output", "embeddings"]
     for _test, _oracle, _retrieved_output in zip(test_types, oracle, retrieved_outputs):
         print(f"{_test} testing, oracle shape: {_oracle.shape}, retr. shape: {_retrieved_output.shape}")
         try:
-            np.testing.assert_allclose(_oracle, _retrieved_output)
+            np.testing.assert_allclose(_retrieved_output, _oracle, rtol=0.7, atol=1e-5)
             print("Reconstruction okay")
+            diff = _retrieved_output - _oracle 
+            print(f"max absolute diff: {np.max(np.absolute(diff))}, max relative diff: {np.nanmax(diff/_oracle)}")
         except AssertionError as e:
                 print(f"Error occured in reconstructions\n{e}")
 
-def save_embeddings(model, data_type, **kwargs):
+def test_saved_embeddings():
+    emb_path_root = os.path.join(os.path.dirname(__file__), "data", "pascal_voc")
+    data_path_root = os.path.join(os.path.dirname(__file__), "data", "grouped_by_classes")
+    data_types = ["train", "val"]
+    data_categories = ["images", "masks"]
+    
+    for data_type, data_category in itertools.product(data_types, data_categories):
+        data_type_root = os.path.join(data_path_root, f"{data_type}", f"{data_category}")
+        emb_type_root = os.path.join(emb_path_root, f"{data_type}", f"{data_category}")
+        
+        for selected_class in os.listdir(data_type_root):
+            data_class_root = os.path.join(data_type_root, selected_class)
+            emb_class_root = os.path.join(emb_type_root, selected_class)
+            data = [i[:-4] for i in os.listdir(data_class_root)]
+            emb = [i[:-4] for i in os.listdir(emb_class_root)]
+            assert set(data) - set(emb) == set(), "not all files generated"
+            print(f"class: {selected_class}, data_type: {data_type}, data_category: {data_category} is ok")
+
+def save_embeddings(encoder, decoder, data_type, **kwargs):
     path_root = os.path.join(os.path.dirname(__file__), "data", "pascal_voc")
     for selected_class in kwargs[f"{data_type}_classes"]:
         images_save_path_data_type_root = os.path.join(path_root, f"{data_type}", "images", selected_class)
@@ -68,7 +93,7 @@ def save_embeddings(model, data_type, **kwargs):
             inp_img, target = class_one[j]
             target = np.squeeze(target)
             fn = class_one.file_names[j]
-            output_embedding = np.squeeze(model(inp_img)[1].numpy())
+            output_embedding = np.squeeze(forward_model(encoder, decoder, inp_img)[1].numpy())
         
             if not os.path.exists(images_save_path_data_type_root):
                 os.makedirs(images_save_path_data_type_root, exist_ok=True)
@@ -145,13 +170,18 @@ class SampleOneClass(Dataset):
     def __len__(self):
         return self.class_counts[self.class_name]
 
-def compute_loss(model, x, masks):
-    logits = model(x)[0]
+def forward_model(encoder, decoder, x):
+    encoder_output = encoder(x)
+    logits, embeddings = decoder(encoder_output)
+    return logits, embeddings
+
+def compute_loss(encoder, decoder, x, masks):
+    logits, _ = forward_model(encoder, decoder, x)
     scce = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
     scce_loss = scce(masks, logits)
     return scce_loss, logits
 
-def calc_val_loss_and_iou_per_class(model, epoch, freq, **kwargs):
+def calc_val_loss_and_iou_per_class(encoder, decoder, epoch, freq, **kwargs):
   class_ious = {}
   val_loss = []
   bs = kwargs["bs"]
@@ -161,7 +191,7 @@ def calc_val_loss_and_iou_per_class(model, epoch, freq, **kwargs):
     loss_per_class = []
     for j in range(len(class_one)//bs + 1):
         inp_img, target = class_one[j*bs:(j+1)*bs]
-        loss, logits = compute_loss(model, inp_img, target)
+        loss, logits = compute_loss(encoder, decoder, inp_img, target)
         pred = np.argmax(logits.numpy(),axis=-1).astype(int)
         target = target.astype(int)
         iou = np.sum(np.logical_and(target, pred))/np.sum(np.logical_or(target, pred))
@@ -177,7 +207,7 @@ def calc_val_loss_and_iou_per_class(model, epoch, freq, **kwargs):
   val_loss = np.mean(val_loss)
   return class_ious, val_loss
 
-def plot_prediction(model, kwargs):
+def plot_prediction(encoder, decoder, kwargs):
     selected_class =  np.random.choice(kwargs["val_classes"])
     print(f"Showing predictions for class {selected_class}")
     class_one = SampleOneClass(selected_class, "val", **kwargs)
@@ -186,7 +216,8 @@ def plot_prediction(model, kwargs):
 
     for i,j in enumerate(random_indices):
         input_data, ground_truth_masks = class_one[j]
-        pred_masks = model(input_data)[0]
+        pred_masks, _ = forward_model(encoder, decoder, input_data)
+
         fig.add_subplot(10,3,i*3+1)
         plt.imshow((np.squeeze(input_data)*127.5 + 127.5).astype("uint8"))
         plt.title(class_one.file_names[j])
@@ -211,19 +242,19 @@ def plot_stats(stats, col):
     plt.show()
 
 @tf.function
-def train_step(model, x, masks, optimizer):
+def train_step(encoder, decoder, x, masks, optimizer):
   """Executes one training step and returns the loss.
 
   This function computes the loss and gradients, and uses the latter to
   update the model's parameters.
   """
   with tf.GradientTape() as tape:
-      loss, _  = compute_loss(model, x, masks)
-  gradients = tape.gradient(loss, model.trainable_variables)
-  optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+      loss, _  = compute_loss(encoder, decoder, x, masks)
+  gradients = tape.gradient(loss, decoder.trainable_variables)
+  optimizer.apply_gradients(zip(gradients, decoder.trainable_variables))
   return loss
 
-def train_model(model, epochs, freq, **model_kwargs):
+def train_model(encoder, decoder, epochs, freq, **model_kwargs):
     bs, grouped_by_classes_root, _ = model_kwargs["bs"], model_kwargs["grouped_by_classes_root"], model_kwargs["train_classes"]
     _ , transform_image, transform_mask = model_kwargs["val_classes"], model_kwargs["transform_image"], model_kwargs["transform_mask"]
     
@@ -243,11 +274,11 @@ def train_model(model, epochs, freq, **model_kwargs):
         for j in range(total_num_train_imgs//bs+1):
             batch_imgs = next(dataloader_img)[0].numpy()
             batch_masks = next(dataloader_mask)[0].numpy()
-            batch_loss = train_step(model, batch_imgs, batch_masks, optimizer)
+            batch_loss = train_step(encoder, decoder, batch_imgs, batch_masks, optimizer)
             batch_losses.append(batch_loss.numpy())
     
         train_loss = float(np.mean(batch_losses))
-        iou_per_class, val_loss = calc_val_loss_and_iou_per_class(model, epoch, freq, **model_kwargs)
+        iou_per_class, val_loss = calc_val_loss_and_iou_per_class(encoder, decoder, epoch, freq, **model_kwargs)
         iou_per_class_list.append(iou_per_class)
         end_time = time.time()
         epoch_time = (end_time - start_time)/60
@@ -261,13 +292,14 @@ def train_model(model, epochs, freq, **model_kwargs):
         print(f"Epoch:{epoch}, Train loss:{train_loss:.5f}, Val loss:{val_loss:.5f}, Epoch Time:{epoch_time:.5f} minutes")
 
         if epoch % freq == 0:
-            plot_prediction(model, model_kwargs)
+            plot_prediction(encoder, decoder, model_kwargs)
             plot_stats(pd.DataFrame(training_stats), "val loss")
     
     total_training_time = sum([i["epoch time"] for i in training_stats])
     print(f"Total model training time {total_training_time:.2f} minutes")
-    tf.saved_model.save(model,"./data/embeddings_ckpt")
-    return training_stats, iou_per_class_list, model, batch_imgs
+    encoder.save_weights("./data/embedding_ckpt/encoder_weights")
+    decoder.save_weights("./data/embedding_ckpt/decoder_weights")
+    return training_stats, iou_per_class_list, decoder, batch_imgs
 
 def main(**train_kwargs):
     """
@@ -286,10 +318,10 @@ def main(**train_kwargs):
     """
    
     num_channels, img_height, img_width =  train_kwargs.get("image_shape", (3, 384, 512))
-    epochs, freq, bs = train_kwargs.get("epochs", 1), train_kwargs.get("freq", 5), train_kwargs.get("bs", 10)
+    epochs, freq, bs = train_kwargs.get("epochs", 30), train_kwargs.get("freq", 30), train_kwargs.get("bs", 10)
     experiment_number = train_kwargs.get("experiment_number", 0)
-    generate_embeddings = train_kwargs.get("generate_embeddings", False)
-    choose_model = train_kwargs.get("model", "mobilenet_v2")
+    generate_embeddings = train_kwargs.get("generate_embeddings", True)
+    choose_encoder = train_kwargs.get("encoder", "mobilenet_v2")
 
     grouped_by_classes_root = os.path.join(os.path.dirname(__file__), "data", "grouped_by_classes")
     train_classes = os.listdir(os.path.join(grouped_by_classes_root, "train", "images" ))
@@ -302,32 +334,32 @@ def main(**train_kwargs):
     transform_image = Transform_image(img_width, img_height)
     transform_mask = Transform_mask(img_width, img_height)
     
-    #update dict with model options
-    model_options = {"mobilenet_v2": init_mobilenet_v2_backbone,
-                     "xception": init_xception_backbone}
+    #update dict with_encoder options
+    encoder_options = {"mobilenet_v2": mobilenet_v2_encoder,}
 
-    chosen_model = model_options[choose_model]
-    print(f"You have selected Model {choose_model}")
+    chosen_encoder = encoder_options[choose_encoder]
+    print(f"You have selected Model {choose_encoder}")
     img_dims = num_channels, img_height, img_width
-    model = chosen_model(*img_dims)
+    encoder = chosen_encoder(img_dims)
+    decoder = Decoder()
 
     model_kwargs = {"bs":bs, "grouped_by_classes_root":grouped_by_classes_root, "train_classes":train_classes, \
                     "val_classes":val_classes, "transform_image":transform_image, "transform_mask":transform_mask}
     
-    training_stats, iou_per_class_list, model, batch_imgs = train_model(model, epochs, freq, **model_kwargs)
+    training_stats, iou_per_class_list, decoder, batch_imgs = train_model(encoder, decoder, epochs, freq, **model_kwargs)
 
     train_stats_save_path_root = os.path.join(os.path.dirname(__file__), "data", "emb_train_stats")
     os.makedirs(train_stats_save_path_root, exist_ok=True)
 
-    test_saved_model(model, chosen_model, batch_imgs, img_dims)
+    test_saved_model(encoder, decoder, chosen_encoder, batch_imgs, img_dims)
 
     save_pickled_data(training_stats, os.path.join(train_stats_save_path_root, f"training_stats_exp_{experiment_number}.pkl"))
     save_pickled_data(iou_per_class_list, os.path.join(train_stats_save_path_root, f"iou_per_class_list_exp_{experiment_number}.pkl"))
     if generate_embeddings:
-        save_embeddings(model, "train", **model_kwargs)
-        save_embeddings(model, "val", **model_kwargs)
-    
-    return training_stats, iou_per_class_list, model
+        save_embeddings(encoder, decoder, "train", **model_kwargs)
+        save_embeddings(encoder, decoder,"val", **model_kwargs)
+    test_saved_embeddings()
+    return training_stats, iou_per_class_list, encoder, decoder
 
 if __name__ == "__main__":
     main()
