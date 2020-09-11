@@ -45,6 +45,23 @@ def save_npy(np_array, filename):
 def rgb2gray(rgb):
     return np.dot(rgb[...,:3], [0.2989, 0.5870, 0.1140])
 
+def test_saved_model(model, chosen_model, manager, ckpt, inputs_imgs, img_dims):
+    optimizer = tf.keras.optimizers.Adam(1e-4)
+    retrieved_model = chosen_model(*img_dims)
+    ckpt = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optimizer, net=retrieved_model)
+    manager = tf.train.CheckpointManager(ckpt, './data/tf_ckpts', max_to_keep=1)
+    ckpt.restore(manager.latest_checkpoint)
+    oracle = model(inputs_imgs)
+    retrieved_outputs = retrieved_model(inputs_imgs)
+    test_types = ["final output", "embeddings"]
+    for _test, _oracle, _retrieved_output in zip(test_types, oracle, retrieved_outputs):
+        print(f"{_test} testing, oracle shape: {_oracle.shape}, retr. shape: {_retrieved_output.shape}")
+        try:
+            np.testing.assert_allclose(_oracle, _retrieved_output)
+            print("Reconstruction okay")
+        except AssertionError as e:
+                print(f"Error occured in reconstructions\n{e}")
+
 def save_embeddings(model, data_type, **kwargs):
     path_root = os.path.join(os.path.dirname(__file__), "data", "pascal_voc")
     for selected_class in kwargs[f"{data_type}_classes"]:
@@ -221,8 +238,10 @@ def train_model(model, epochs, freq, **model_kwargs):
     optimizer = tf.keras.optimizers.Adam(1e-4)
     training_stats = []
     iou_per_class_list = []
-
+    ckpt = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optimizer, net=model)
+    manager = tf.train.CheckpointManager(ckpt, './data/tf_ckpts', max_to_keep=1)
     for epoch in range(1, epochs + 1):
+        ckpt.step.assign_add(1)
         start_time = time.time()
         dataloader_img = iter(DataLoader(img_datasets, batch_size=bs,shuffle=False, num_workers=0))
         dataloader_mask = iter(DataLoader(mask_datasets, batch_size=bs,shuffle=False, num_workers=0))
@@ -254,7 +273,9 @@ def train_model(model, epochs, freq, **model_kwargs):
     
     total_training_time = sum([i["epoch time"] for i in training_stats])
     print(f"Total model training time {total_training_time:.2f} minutes")
-    return training_stats, iou_per_class_list, model
+    save_path = manager.save()
+    print("Saved checkpoint for step {}: {}".format(int(ckpt.step), save_path))
+    return training_stats, iou_per_class_list, model, manager, ckpt, batch_imgs
 
 def main(**train_kwargs):
     """
@@ -273,7 +294,7 @@ def main(**train_kwargs):
     """
    
     num_channels, img_height, img_width =  train_kwargs.get("image_shape", (3, 384, 512))
-    epochs, freq, bs = train_kwargs.get("epochs", 30), train_kwargs.get("freq", 5), train_kwargs.get("bs", 10)
+    epochs, freq, bs = train_kwargs.get("epochs", 1), train_kwargs.get("freq", 5), train_kwargs.get("bs", 10)
     experiment_number = train_kwargs.get("experiment_number", 0)
     generate_embeddings = train_kwargs.get("generate_embeddings", False)
     choose_model = train_kwargs.get("model", "mobilenet_v2")
@@ -295,15 +316,18 @@ def main(**train_kwargs):
 
     chosen_model = model_options[choose_model]
     print(f"You have selected Model {choose_model}")
-    model = chosen_model(num_channels, img_height, img_width)
+    img_dims = num_channels, img_height, img_width
+    model = chosen_model(*img_dims)
 
     model_kwargs = {"bs":bs, "grouped_by_classes_root":grouped_by_classes_root, "train_classes":train_classes, \
                     "val_classes":val_classes, "transform_image":transform_image, "transform_mask":transform_mask}
     
-    training_stats, iou_per_class_list, model = train_model(model, epochs, freq, **model_kwargs)
+    training_stats, iou_per_class_list, model, manager, ckpt, batch_imgs = train_model(model, epochs, freq, **model_kwargs)
 
     train_stats_save_path_root = os.path.join(os.path.dirname(__file__), "data", "emb_train_stats")
     os.makedirs(train_stats_save_path_root, exist_ok=True)
+
+    test_saved_model(model, chosen_model, manager, ckpt, batch_imgs, img_dims)
 
     save_pickled_data(training_stats, os.path.join(train_stats_save_path_root, f"training_stats_exp_{experiment_number}.pkl"))
     save_pickled_data(iou_per_class_list, os.path.join(train_stats_save_path_root, f"iou_per_class_list_exp_{experiment_number}.pkl"))
