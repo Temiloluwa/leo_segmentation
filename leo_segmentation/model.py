@@ -1,89 +1,84 @@
 # Architecture definition
 # Computational graph creation
 import torch, os, numpy as np
-from torch import nn
-from torch.distributions import Normal
-from torch.nn import CrossEntropyLoss
-from torch.utils.tensorboard import SummaryWriter
-from torchvision import models
-from torch.nn import functional as F
+import tensorflow as tf
 from utils import display_data_shape, get_named_dict, calc_iou_per_class,\
     log_data, load_config, summary_write_masks
+
+def mobilenet_v2_encoder(img_dims):
+    num_channels, img_height, img_width = img_dims
+    base_model = tf.keras.applications.MobileNetV2(
+        weights="imagenet",  
+        input_shape=(img_height, img_width, num_channels), 
+        include_top=False,
+    )  
+    layer_names = [
+        'block_1_expand_relu',   
+        'block_3_expand_relu',   
+        'block_6_expand_relu',   
+        'block_13_expand_relu',  
+        'block_16_project',      
+    ]
+    layers = [base_model.get_layer(name).output for name in layer_names]
+    encoder = tf.keras.Model(inputs=base_model.input, outputs=layers)
+    encoder.trainable = False
+    return encoder
+
+class Decoder(tf.keras.Model):
+  def __init__(self, dropout_probs=0.25):
+    super(Decoder, self).__init__()
+    self.conv1 = tf.keras.layers.Conv2D(filters=8, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+    self.conv1b = tf.keras.layers.Conv2D(filters=8, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+    self.conv2 = tf.keras.layers.Conv2D(filters=8*2, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+    self.conv2b = tf.keras.layers.Conv2D(filters=8*2, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+    self.conv3 = tf.keras.layers.Conv2D(filters=8*3, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+    self.conv3b = tf.keras.layers.Conv2D(filters=8*3, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+    self.conv4 = tf.keras.layers.Conv2D(filters=8*4, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+    self.conv4b = tf.keras.layers.Conv2D(filters=8*4, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+    self.conv5 = tf.keras.layers.Conv2D(filters=8*5, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+    self.conv5b = tf.keras.layers.Conv2D(filters=8*5, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+    self.convfinal = tf.keras.layers.Conv2D(filters=2, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+    self.upsample1 = tf.keras.layers.Conv2DTranspose(8, 3, strides=2,padding='same')
+    self.upsample2 = tf.keras.layers.Conv2DTranspose(8*2, 3, strides=2,padding='same')
+    self.upsample3 = tf.keras.layers.Conv2DTranspose(8*3, 3, strides=2,padding='same')
+    self.upsample4 = tf.keras.layers.Conv2DTranspose(8*4, 3, strides=2,padding='same')
+    self.upsample5 = tf.keras.layers.Conv2DTranspose(8*5, 3, strides=2,padding='same')
+    self.concat = tf.keras.layers.Concatenate()
+    self.dropout1 = tf.keras.layers.Dropout(dropout_probs)
+    self.dropout2 = tf.keras.layers.Dropout(dropout_probs)
+    self.dropout3 = tf.keras.layers.Dropout(dropout_probs)
+    self.dropout4 = tf.keras.layers.Dropout(dropout_probs)
+    self.dropout5 = tf.keras.layers.Dropout(dropout_probs)
+
+  def call(self, encoder_outputs):
+    x = self.conv1(encoder_outputs[-1])
+    x = self.dropout1(x)
+    x = self.conv1b(x)
+    x = self.upsample1(x)
+    x = self.concat([x, encoder_outputs[-2]])
+    x = self.conv2(x)
+    x = self.dropout2(x)
+    x = self.conv2b(x)
+    x = self.upsample2(x)
+    x = self.concat([x, encoder_outputs[-3]])
+    x = self.conv3(x)
+    x = self.dropout3(x)
+    x = self.conv3b(x)
+    x = self.upsample3(x)
+    x = self.concat([x, encoder_outputs[-4]])
+    x = self.conv4(x)
+    x = self.dropout4(x)
+    x = self.conv4b(x)
+    x = self.upsample4(x)
+    x = self.concat([x, encoder_outputs[-5]])
+    emb_out = self.conv5(x)
+    x = self.dropout5(emb_out)
+    x = self.conv5b(x)
+    x = self.upsample5(x)
+    output = self.convfinal(x)
+    return output
     
-class Flatten(nn.Module):
-  def __init__(self):
-    super(Flatten, self).__init__()
-
-  def forward(self, x):
-    return torch.reshape(x, (x.shape[0], -1))
-
-class Reshape(nn.Module):
-  def __init__(self, dims):
-    super(Reshape, self).__init__()
-    self.dims = dims
-
-  def forward(self, x):
-    return x.view(self.dims)
-
-class EncoderBlock(nn.Module):
-    """
-    Encoder with pretrained backbone
-    """
-    def __init__(self):
-        super(EncoderBlock, self).__init__()
-        self.layers = nn.ModuleList(list(models.mobilenet_v2(pretrained=True).features))
-    
-    def forward(self,x):
-        features = []
-        output_layers = [1, 3, 6, 13]
-        for i, layer in enumerate(self.layers):
-            x = layer(x)
-            if i in output_layers:
-                features.append(x)
-        return x, features
-
-def decoder_block(config, trans_in_channels, trans_out_channels, conv_out_channels, dropout=True):
-    conv_trans = nn.ConvTranspose2d(trans_in_channels, trans_out_channels, kernel_size=4, stride=2, padding=1)
-    layers = [#nn.ReLU(),
-              nn.Conv2d(conv_out_channels, conv_out_channels, kernel_size=3, stride=1, padding=1),
-              nn.BatchNorm2d(conv_out_channels),
-              nn.ReLU(),
-             ]
-    if dropout:
-        layers.append(nn.Dropout(config.dropout_rate))
-    conv_block = nn.Sequential(*layers)
-    return conv_trans, conv_block
- 
-class DecoderBlock(nn.Module):
-    """
-    Leo Decoder
-    """
-    def __init__(self, config):
-        super(DecoderBlock, self).__init__()
-        base_chn = 8
-        self.conv_trans1, self.conv_1 = decoder_block(config, 1280, base_chn, 96 + base_chn)
-        self.conv_trans2, self.conv_2 = decoder_block(config, 96 + base_chn, base_chn*2, 32 + base_chn*2)
-        self.conv_trans3, self.conv_3 = decoder_block(config, 32 + base_chn*2, base_chn*3, 24 + base_chn*3)
-        self.conv_trans4, self.conv_4 = decoder_block(config, 24 + base_chn*3, base_chn*4, 16 + base_chn*4)
-        self.conv_trans_final = nn.ConvTranspose2d(16 + base_chn*4, 16 + base_chn*4, kernel_size=4, stride=2, padding=1)
-       
-    def forward(self, x, concat_features):
-        o = self.conv_trans1(x)
-        o = torch.cat([o, concat_features[-1]], dim=1)
-        o = self.conv_1(o)
-        o = self.conv_trans2(o)
-        o = torch.cat([o, concat_features[-2]], dim=1)
-        o = self.conv_2(o)
-        o = self.conv_trans3(o)
-        o = torch.cat([o, concat_features[-3]], dim=1)
-        o = self.conv_3(o)
-        o = self.conv_trans4(o)
-        o = torch.cat([o, concat_features[-4]], dim=1)
-        o = self.conv_4(o)
-        o = self.conv_trans_final(o)
-        return o
-
-class LEO(nn.Module):
+class LEO(tf.keras.Model):
     """
     contains functions to perform latent embedding optimization
     """
@@ -91,29 +86,50 @@ class LEO(nn.Module):
         super(LEO, self).__init__()
         self.config = config
         self.mode = mode
-        self.latent_size = config.hyperparameters.num_latents
-        self.dense_input_shape = (28, 192, 256)
-        self.encoder = EncoderBlock()
-        self.decoder = DecoderBlock(config.hyperparameters)
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() and config.use_gpu else "cpu")
-        seg_network =  nn.Conv2d(16 + 8*4 + 3 , 2, kernel_size=3, stride=1, padding=1)
-        self.seg_weight = seg_network.weight.detach().to(self.device)
-        self.seg_weight.requires_grad = True
-        self.seg_bias = seg_network.bias.detach().to(self.device)
-        self.seg_bias.requires_grad = True
-        self.loss_fn = CrossEntropyLoss()
-
-    def freeze_encoder(self):
-        for name, param in self.named_parameters():
-            if "encoder" in name:
-                param.requires_grad = False
+        self.img_dims = (3, 384, 512)
+        self.encoder = mobilenet_v2_encoder(self.img_dims)
+        self.decoder = Decoder()
+        
+        #seg_network =  nn.Conv2d(16 + 8*4 + 3 , 2, kernel_size=3, stride=1, padding=1)
+        #self.seg_weight = seg_network.weight.detach().to(self.device)
+        #self.seg_weight.requires_grad = True
+        #self.seg_bias = seg_network.bias.detach().to(self.device)
+        
 
     def forward_encoder(self, x):
-        latents, features = self.encoder(x)
-        if not latents.requires_grad:
-            latents.requires_grad = True
-        return latents, features
-    
+        encoder_outputs = self.encoder(x)
+        latents, features = encoder_outputs[:-1], encoder_outputs[-1] 
+        return encoder_outputs
+
+    def forward_decoder(self, encoder_outputs):
+        output, _ = self.decoder(encoder_outputs)
+        return output
+
+    def call(self, x):
+        o = self.forward_encoder(x)
+        o = self.forward_decoder(o)
+        return o
+
+    def evaluate(self, metadata):
+        num_tasks = len(metadata[0])
+        def cal_iou(x, target, class_name):
+            logits = self.call(x)
+            pred = np.argmax(logits.numpy(),axis=-1).astype(int)
+            target = target.astype(int)
+            iou = np.sum(np.logical_and(target, pred))/np.sum(np.logical_or(target, pred))
+            print(f"class: {class_name}, iou: {iou}")
+        
+        for batch in range(num_tasks):
+            data_dict = get_named_dict(metadata, batch)
+            cal_iou(data_dict.tr_imgs[batch], data_dict.tr_masks[batch], metadata[-1])
+        
+        for batch in range(num_tasks):
+            data_dict = get_named_dict(metadata, batch)
+            cal_iou(data_dict.val_imgs[batch], data_dict.val_masks[batch], metadata[-1])
+
+
+
+    """
     def forward_segnetwork(self, decoder_out, x, weight, bias, target):
         o = torch.cat([decoder_out, x], dim=1)
         pred = F.conv2d(o, weight, bias, padding=1)
@@ -132,7 +148,7 @@ class LEO(nn.Module):
             _, features = self.forward_encoder(x)
         loss, pred, decoder_output = self.forward_decoder(x, latents, weight, bias, features, target)
         return loss, pred, latents, decoder_output
-        
+    """    
     def leo_inner_loop(self, x, weight, bias, target):
         """
         This function does "latent code optimization" that is back propagation  until latent codes and
@@ -173,41 +189,8 @@ class LEO(nn.Module):
             _, tr_loss = self.forward_segnetwork(tr_decoder_output, data.tr_imgs, weight, bias, data.tr_masks)
         val_loss, _, _, _ = self.forward(data.val_imgs, weight, bias, data.val_masks)
         return val_loss
-
-    def compute_loss(self, metadata, train_stats, mode="meta_train"):
-        """
-        Computes the  outer loop loss
-
-        Args:
-            model (object) : leo model
-            meta_dataloader (object): Dataloader 
-            train_stats: (object): train stats object
-            config (dict): config
-            mode (str): meta_train, meta_val or meta_test
-        Returns:
-            (tuple) total_val_loss (list), train_stats
-        """
-        num_tasks = len(metadata[0])
-        if train_stats.episode % self.config.display_stats_interval == 1:
-            display_data_shape(metadata)
-        total_val_loss = []
-
-        for batch in range(num_tasks):
-            data_dict = get_named_dict(metadata, batch)
-            weights = self.seg_weight.clone()
-            bias = self.seg_bias.clone()
-            tr_loss, tr_decoder_output = self.leo_inner_loop(data_dict.tr_imgs, weights, bias, data_dict.tr_masks)
-            val_loss = self.finetuning_inner_loop(data_dict, tr_loss, tr_decoder_output, weights, bias)
-            total_val_loss.append(val_loss)
-
-        total_val_loss = sum(total_val_loss)/len(total_val_loss)
-        stats_data = {
-            "mode": mode,
-            "kl_loss": 0,
-            "total_val_loss":total_val_loss
-        }
-        train_stats.update_stats(**stats_data)
-        return total_val_loss, train_stats
+    
+    
 
     def evaluate_val_imgs(self, metadata, classes, train_stats, writer):
         log_msg = ""

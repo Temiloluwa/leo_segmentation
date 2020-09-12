@@ -1,5 +1,5 @@
 #contains data preprocessing functions
-from utils import numpy_to_tensor, meta_classes_selector
+from utils import meta_classes_selector
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, utils, datasets
 from PIL import Image
@@ -124,8 +124,8 @@ class Datagenerator(Dataset):
 
         assert len(classes_selected) == len(set(classes_selected)), "classes are not unique"
 
-        return numpy_to_tensor(np.array(tr_imgs)), numpy_to_tensor(np.array(tr_masks)),\
-               numpy_to_tensor(np.array(val_imgs)), numpy_to_tensor(np.array(val_masks)),\
+        return np.array(tr_imgs), np.array(tr_masks),\
+               np.array(val_imgs), np.array(val_masks),\
                classes_selected
 
     def get_batch_data(self):

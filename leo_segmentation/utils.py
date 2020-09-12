@@ -154,10 +154,10 @@ def prepare_inputs(data):
 def get_named_dict(metadata, batch):
     """Returns a named dict"""
     tr_imgs, tr_masks, val_imgs, val_masks, _ = metadata
-    data_dict = { 'tr_imgs': prepare_inputs(tr_imgs[batch]),
-                  'tr_masks': prepare_inputs(tr_masks[batch]) ,
-                  'val_imgs':  prepare_inputs(val_imgs[batch]),
-                  'val_masks': prepare_inputs(val_masks[batch])}
+    data_dict = { 'tr_imgs':tr_imgs[batch],
+                  'tr_masks':tr_masks[batch],
+                  'val_imgs':val_imgs[batch],
+                  'val_masks':val_masks[batch]}
     return edict(data_dict)
 
 
@@ -171,7 +171,7 @@ def display_data_shape(metadata):
             metadata.tr_masks, metadata.val_imgs, metadata.val_masks 
    
     print("tr_imgs shape: {},tr_masks shape: {}, val_imgs shape: {},val_masks shape: {}". \
-            format(tr_imgs.size(), tr_masks.size(), val_imgs.size(), val_masks.size()))
+            format(tr_imgs.shape, tr_masks.shape, val_imgs.shape, val_masks.shape))
     
 
 def log_data(msg, log_filename):
