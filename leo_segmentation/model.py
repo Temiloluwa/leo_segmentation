@@ -76,9 +76,9 @@ class Decoder(tf.keras.Model):
     x = self.conv5b(x)
     x = self.upsample5(x)
     output = self.convfinal(x)
-    return output
+    return [output, emb_out]
     
-class LEO(tf.keras.Model):
+class LEO:
     """
     contains functions to perform latent embedding optimization
     """
@@ -89,12 +89,12 @@ class LEO(tf.keras.Model):
         self.img_dims = (3, 384, 512)
         self.encoder = mobilenet_v2_encoder(self.img_dims)
         self.decoder = Decoder()
-        
+        self.optimizer = tf.keras.optimizers.Adam(1e-4)
         #seg_network =  nn.Conv2d(16 + 8*4 + 3 , 2, kernel_size=3, stride=1, padding=1)
         #self.seg_weight = seg_network.weight.detach().to(self.device)
         #self.seg_weight.requires_grad = True
         #self.seg_bias = seg_network.bias.detach().to(self.device)
-        
+        self.loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
 
     def forward_encoder(self, x):
         encoder_outputs = self.encoder(x)
@@ -112,20 +112,26 @@ class LEO(tf.keras.Model):
 
     def evaluate(self, metadata):
         num_tasks = len(metadata[0])
-        def cal_iou(x, target, class_name):
+    
+        def cal_iou(x, target, class_name, batch):
+            iou_per_class = []
             logits = self.call(x)
             pred = np.argmax(logits.numpy(),axis=-1).astype(int)
             target = target.astype(int)
             iou = np.sum(np.logical_and(target, pred))/np.sum(np.logical_or(target, pred))
-            print(f"class: {class_name}, iou: {iou}")
+            iou_per_class.append(iou)
+            mean_iou_per_class = np.mean(iou_per_class)
+            print(f"class: {class_name[batch]}, iou: {mean_iou_per_class}")
         
         for batch in range(num_tasks):
+            print("**Train**")
             data_dict = get_named_dict(metadata, batch)
-            cal_iou(data_dict.tr_imgs[batch], data_dict.tr_masks[batch], metadata[-1])
+            cal_iou(data_dict.tr_imgs, data_dict.tr_masks, metadata[-1], batch)
         
         for batch in range(num_tasks):
+            print("**Validation**")
             data_dict = get_named_dict(metadata, batch)
-            cal_iou(data_dict.val_imgs[batch], data_dict.val_masks[batch], metadata[-1])
+            cal_iou(data_dict.val_imgs, data_dict.val_masks, metadata[-1], batch)
 
 
 
@@ -190,7 +196,53 @@ class LEO(tf.keras.Model):
         val_loss, _, _, _ = self.forward(data.val_imgs, weight, bias, data.val_masks)
         return val_loss
     
-    
+    @tf.function
+    def compute_loss(self, metadata, train_stats, mode="meta_train"):
+        """
+        Computes the  outer loop loss
+
+        Args:
+            model (object) : leo model
+            meta_dataloader (object): Dataloader 
+            train_stats: (object): train stats object
+            config (dict): config
+            mode (str): meta_train, meta_val or meta_test
+        Returns:
+            (tuple) total_val_loss (list), train_stats
+        """
+        num_tasks = len(metadata[0])
+        if train_stats.episode % self.config.display_stats_interval == 1:
+            display_data_shape(metadata)
+
+        for batch in range(num_tasks):
+            data_dict = get_named_dict(metadata, batch)
+            #weights = self.seg_weight.clone()
+            #bias = self.seg_bias.clone()
+            #tr_loss, tr_decoder_output = self.leo_inner_loop(data_dict.tr_imgs, weights, bias, data_dict.tr_masks)
+            total_val_loss = []
+            total_gradients = None
+            with tf.GradientTape() as tape:
+                pred = self.call(data_dict.tr_imgs)
+                tr_loss =  self.loss_fn(data_dict.tr_masks, pred)
+                total_val_loss.append(tr_loss)
+                #val_loss = self.finetuning_inner_loop(data_dict, tr_loss, tr_decoder_output, weights, bias)
+            gradients = tape.gradient(tr_loss, self.decoder.trainable_variables)
+            gradients = [grad/num_tasks for grad in gradients]
+            if total_gradients == None:
+                total_gradients = gradients
+            else:
+                total_gradients = [total_gradients[i] + gradients[i] for i in range(len(gradients))]
+        total_val_loss = sum(total_val_loss)/len(total_val_loss)
+        self.optimizer.apply_gradients(zip(total_gradients, self.decoder.trainable_variables))
+        """"
+        stats_data = {
+            "mode": mode,
+            "kl_loss": 0,
+            "total_val_loss":total_val_loss
+        }
+        train_stats.update_stats(**stats_data)
+        """
+        return total_val_loss
 
     def evaluate_val_imgs(self, metadata, classes, train_stats, writer):
         log_msg = ""

@@ -2,7 +2,7 @@ from data import Datagenerator, TrainingStats
 from model import LEO, load_model, save_model
 from easydict import EasyDict as edict
 from torch.utils.tensorboard import SummaryWriter
-from utils import load_config, check_experiment, get_named_dict, display_data_shape
+from utils import load_config, check_experiment, get_named_dict
 import numpy as np
 import tensorflow as tf
 import os
@@ -17,48 +17,16 @@ import gc
 #dataset = args.dataset
 
 dataset = "pascal_voc_raw"
-@tf.function
-def compute_loss(leo, metadata, train_stats, optimizer, loss_fn, mode="meta_train"):
-    """
-    Computes the  outer loop loss
-
-    Args:
-        model (object) : leo model
-        meta_dataloader (object): Dataloader 
-        train_stats: (object): train stats object
-        config (dict): config
-        mode (str): meta_train, meta_val or meta_test
-    Returns:
-        (tuple) total_val_loss (list), train_stats
-    """
-    num_tasks = len(metadata[0])
-    if train_stats.episode % 5 == 1:
-        display_data_shape(metadata)
-    total_val_loss = []
-
-    for batch in range(num_tasks):
-        data_dict = get_named_dict(metadata, batch)
-        #weights = self.seg_weight.clone()
-        #bias = self.seg_bias.clone()
-        #tr_loss, tr_decoder_output = self.leo_inner_loop(data_dict.tr_imgs, weights, bias, data_dict.tr_masks)
-        with tf.GradientTape() as tape:
-            o = leo.encoder(data_dict.tr_imgs)
-            pred = leo.decoder(o)
-            tr_loss =  loss_fn(data_dict.tr_masks, pred)
-            #val_loss = self.finetuning_inner_loop(data_dict, tr_loss, tr_decoder_output, weights, bias)
-            total_val_loss.append(tr_loss)
-    
-    total_val_loss = sum(total_val_loss)/len(total_val_loss)
-    gradients = tape.gradient(total_val_loss, leo.decoder.trainable_variables)
-    optimizer.apply_gradients(zip(gradients, leo.decoder.trainable_variables))
-
-    stats_data = {
-        "mode": mode,
-        "kl_loss": 0,
-        "total_val_loss":total_val_loss
-    }
-    train_stats.update_stats(**stats_data)
-    return total_val_loss, train_stats
+gpus = tf.config.experimental.list_physical_devices('GPU')
+if gpus:
+  # Restrict TensorFlow to only use the first GPU
+  try:
+    tf.config.experimental.set_visible_devices(gpus[0], 'GPU')
+    logical_gpus = tf.config.experimental.list_logical_devices('GPU')
+    print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPU")
+  except RuntimeError as e:
+    # Visible devices must be set before GPUs have been initialized
+    print(e)
 
 
 def train_model(config):
@@ -80,14 +48,11 @@ def train_model(config):
     tf.keras.backend.clear_session()
     episodes_completed = 0
     episodes = 10
-    optimizer = tf.keras.optimizers.Adam(1e-4)
-    loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
-    
     for episode in range(episodes_completed+1, episodes+1):
         train_stats.set_episode(episode)
         dataloader = Datagenerator(config, dataset, data_type="meta_train")
         metadata = dataloader.get_batch_data()
-        metatrain_loss, train_stats = compute_loss(leo, metadata, train_stats, optimizer, loss_fn)
+        metatrain_loss = leo.compute_loss(metadata, train_stats)
         print(f"Episode {episode}, Tr loss {metatrain_loss}")
         leo.evaluate(metadata)
 
