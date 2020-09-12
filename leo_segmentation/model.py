@@ -123,13 +123,13 @@ class LEO:
             mean_iou_per_class = np.mean(iou_per_class)
             print(f"class: {class_name[batch]}, iou: {mean_iou_per_class}")
         
-        for batch in range(num_tasks):
-            print("**Train**")
+        print("**Train**")
+        for batch in range(num_tasks):   
             data_dict = get_named_dict(metadata, batch)
             cal_iou(data_dict.tr_imgs, data_dict.tr_masks, metadata[-1], batch)
         
+        print("**Validation**")
         for batch in range(num_tasks):
-            print("**Validation**")
             data_dict = get_named_dict(metadata, batch)
             cal_iou(data_dict.val_imgs, data_dict.val_masks, metadata[-1], batch)
 
