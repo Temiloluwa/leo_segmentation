@@ -47,7 +47,7 @@ def train_model(config):
     train_stats = TrainingStats(config)
     tf.keras.backend.clear_session()
     episodes_completed = 0
-    episodes = 100
+    episodes = 1000
     for episode in range(episodes_completed+1, episodes+1):
         train_stats.set_episode(episode)
         dataloader = Datagenerator(config, dataset, data_type="meta_train")

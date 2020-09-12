@@ -196,7 +196,7 @@ class LEO:
         val_loss, _, _, _ = self.forward(data.val_imgs, weight, bias, data.val_masks)
         return val_loss
     
-    @tf.function
+    
     def compute_loss(self, metadata, train_stats, mode="meta_train"):
         """
         Computes the  outer loop loss
@@ -214,13 +214,13 @@ class LEO:
         if train_stats.episode % self.config.display_stats_interval == 1:
             display_data_shape(metadata)
 
+        total_gradients = None
         for batch in range(num_tasks):
             data_dict = get_named_dict(metadata, batch)
             #weights = self.seg_weight.clone()
             #bias = self.seg_bias.clone()
             #tr_loss, tr_decoder_output = self.leo_inner_loop(data_dict.tr_imgs, weights, bias, data_dict.tr_masks)
             total_val_loss = []
-            total_gradients = None
             with tf.GradientTape() as tape:
                 pred = self.call(data_dict.tr_imgs)
                 tr_loss =  self.loss_fn(data_dict.tr_masks, pred)
