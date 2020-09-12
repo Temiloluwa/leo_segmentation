@@ -113,20 +113,25 @@ class LEO(nn.Module):
         if not latents.requires_grad:
             latents.requires_grad = True
         return latents, features
-
-    def forward_decoder(self, x, latents, weight, bias, features):
-        o = self.decoder(latents, features)
-        o = torch.cat([o, x], dim=1)
-        o = F.conv2d(o, weight, bias, padding=1)
-        return o
+    
+    def forward_segnetwork(self, decoder_out, x, weight, bias, target):
+        o = torch.cat([decoder_out, x], dim=1)
+        pred = F.conv2d(o, weight, bias, padding=1)
+        loss = self.loss_fn(pred, target.long())
+        return pred, loss
+    
+    def forward_decoder(self, x, latents, weight, bias, features, target):
+        decoder_output = self.decoder(latents, features)
+        pred, loss = self.forward_segnetwork(decoder_output, x, weight, bias, target)
+        return loss, pred, decoder_output
 
     def forward(self, x, weight, bias, target, latents=None):
         if latents == None:
-            latents, self.features = self.forward_encoder(x)
-            
-        pred = self.forward_decoder(x, latents, weight, bias, self.features)
-        loss = self.loss_fn(pred, target.long())
-        return loss, pred, latents
+            latents, features = self.forward_encoder(x)
+        else:
+            _, features = self.forward_encoder(x)
+        loss, pred, decoder_output = self.forward_decoder(x, latents, weight, bias, features, target)
+        return loss, pred, latents, decoder_output
         
     def leo_inner_loop(self, x, weight, bias, target):
         """
@@ -140,16 +145,16 @@ class LEO(nn.Module):
             segmentation_weights : shape(num_classes, num_eg_per_class, channels, H, W)
         """
         inner_lr = self.config.hyperparameters.inner_loop_lr
-        tr_loss, _ , latents = self.forward(x, weight, bias, target)
+        tr_loss, _ , latents, _ = self.forward(x, weight, bias, target)
         #initial_latents = latents.clone()   
         for _ in range(self.config.hyperparameters.num_adaptation_steps):
             latents_grad = torch.autograd.grad(tr_loss, [latents], create_graph=False)[0]
             with torch.no_grad():
                 latents -= inner_lr * latents_grad
-            tr_loss, _ , latents  = self.forward(x, weight, bias, target, latents)
-        return tr_loss 
+            tr_loss, _ , latents, tr_decoder_output  = self.forward(x, weight, bias, target, latents)
+        return tr_loss, tr_decoder_output
 
-    def finetuning_inner_loop(self, data, tr_loss, weight, bias):
+    def finetuning_inner_loop(self, data, tr_loss, tr_decoder_output, weight, bias):
         """
         This function does "segmentation_weights optimization"
         Args:
@@ -165,8 +170,8 @@ class LEO(nn.Module):
             with torch.no_grad():
                 weight -= finetuning_lr * grad_weight
                 bias -= finetuning_lr * grad_bias
-            tr_loss, _ , _  = self.forward(data.tr_imgs, weight, bias, data.tr_masks)
-        val_loss, _, _ = self.forward(data.val_imgs, weight, bias, data.val_masks)
+            _, tr_loss = self.forward_segnetwork(tr_decoder_output, data.tr_imgs, weight, bias, data.tr_masks)
+        val_loss, _, _, _ = self.forward(data.val_imgs, weight, bias, data.val_masks)
         return val_loss
 
     def compute_loss(self, metadata, train_stats, mode="meta_train"):
@@ -191,8 +196,8 @@ class LEO(nn.Module):
             data_dict = get_named_dict(metadata, batch)
             weights = self.seg_weight.clone()
             bias = self.seg_bias.clone()
-            tr_loss = self.leo_inner_loop(data_dict.tr_imgs, weights, bias, data_dict.tr_masks)
-            val_loss = self.finetuning_inner_loop(data_dict, tr_loss, weights, bias)
+            tr_loss, tr_decoder_output = self.leo_inner_loop(data_dict.tr_imgs, weights, bias, data_dict.tr_masks)
+            val_loss = self.finetuning_inner_loop(data_dict, tr_loss, tr_decoder_output, weights, bias)
             total_val_loss.append(val_loss)
 
         total_val_loss = sum(total_val_loss)/len(total_val_loss)
@@ -211,7 +216,7 @@ class LEO(nn.Module):
             data_dict = get_named_dict(metadata, batch)
             weights = self.seg_weight.clone()
             bias = self.seg_bias.clone()
-            _, predictions, _  = self.forward(data_dict.val_imgs, weights, bias, data_dict.val_masks)
+            _, predictions, _, _ = self.forward(data_dict.val_imgs, weights, bias, data_dict.val_masks)
             iou = calc_iou_per_class(predictions, data_dict.val_masks)
             batch_msg = f"\nClass: {classes[batch]}, Episode: {train_stats.episode}, Val IOU: {iou}"
             print(batch_msg[1:])

@@ -12,11 +12,11 @@
         "meta_class_splits":{"meta_train":[0, 10], "meta_val":[10, 15], "meta_test":[15,20]},
         "n_train_per_class":{"meta_train":2, "meta_val":2, "meta_test":2},
         "n_val_per_class":{"meta_train":5, "meta_val":"rest", "meta_test":"rest"},
-        "num_tasks":{"meta_train":7, "meta_val":5, "meta_test":5}
+        "num_tasks":{"meta_train":1, "meta_val":5, "meta_test":5}
     },
-    "experiment":{"number":12, "episode":1, "description":"pascal_voc_raw", "prompt_deletion":false},
+    "experiment":{"number":14, "episode":1, "description":"fixed_some_bugs", "prompt_deletion":false},
     "hyperparameters":{
-        "outer_loop_lr":1e-3,
+        "outer_loop_lr":1e-4,
         "inner_loop_lr":1e-4,
         "finetuning_lr":1e-4,
         "dropout_rate":0.2,
