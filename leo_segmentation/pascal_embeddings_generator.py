@@ -189,7 +189,7 @@ def calc_val_loss_and_iou_per_class(encoder, decoder, epoch, freq, **kwargs):
     class_one = SampleOneClass(class_, "val", **kwargs)
     iou_per_class = []
     loss_per_class = []
-    for j in range(len(class_one)//bs + 1):
+    for j in range(len(class_one)//bs ):
         inp_img, target = class_one[j*bs:(j+1)*bs]
         loss, logits = compute_loss(encoder, decoder, inp_img, target)
         pred = np.argmax(logits.numpy(),axis=-1).astype(int)
@@ -254,7 +254,7 @@ def train_step(encoder, decoder, x, masks, optimizer):
   optimizer.apply_gradients(zip(gradients, decoder.trainable_variables))
   return loss
 
-def train_model(encoder, decoder, epochs, freq, **model_kwargs):
+def train_model(encoder, decoder, epochs, freq, show_stats=False,**model_kwargs):
     bs, grouped_by_classes_root, _ = model_kwargs["bs"], model_kwargs["grouped_by_classes_root"], model_kwargs["train_classes"]
     _ , transform_image, transform_mask = model_kwargs["val_classes"], model_kwargs["transform_image"], model_kwargs["transform_mask"]
     
@@ -271,7 +271,7 @@ def train_model(encoder, decoder, epochs, freq, **model_kwargs):
         dataloader_mask = iter(DataLoader(mask_datasets, batch_size=bs,shuffle=False, num_workers=0))
         batch_losses = []
         
-        for j in range(total_num_train_imgs//bs+1):
+        for j in range(total_num_train_imgs//bs):
             batch_imgs = next(dataloader_img)[0].numpy()
             batch_masks = next(dataloader_mask)[0].numpy()
             batch_loss = train_step(encoder, decoder, batch_imgs, batch_masks, optimizer)
@@ -291,7 +291,8 @@ def train_model(encoder, decoder, epochs, freq, **model_kwargs):
         })
         print(f"Epoch:{epoch}, Train loss:{train_loss:.5f}, Val loss:{val_loss:.5f}, Epoch Time:{epoch_time:.5f} minutes")
 
-        if epoch % freq == 0:
+
+        if epoch % freq == 0 and show_stats:
             plot_prediction(encoder, decoder, model_kwargs)
             plot_stats(pd.DataFrame(training_stats), "val loss")
     
@@ -318,7 +319,7 @@ def main(**train_kwargs):
     """
    
     num_channels, img_height, img_width =  train_kwargs.get("image_shape", (3, 384, 512))
-    epochs, freq, bs = train_kwargs.get("epochs", 30), train_kwargs.get("freq", 30), train_kwargs.get("bs", 10)
+    epochs, freq, bs = train_kwargs.get("epochs", 30), train_kwargs.get("freq", 1), train_kwargs.get("bs", 1)
     experiment_number = train_kwargs.get("experiment_number", 0)
     generate_embeddings = train_kwargs.get("generate_embeddings", True)
     choose_encoder = train_kwargs.get("encoder", "mobilenet_v2")
@@ -346,7 +347,7 @@ def main(**train_kwargs):
     model_kwargs = {"bs":bs, "grouped_by_classes_root":grouped_by_classes_root, "train_classes":train_classes, \
                     "val_classes":val_classes, "transform_image":transform_image, "transform_mask":transform_mask}
     
-    training_stats, iou_per_class_list, decoder, batch_imgs = train_model(encoder, decoder, epochs, freq, **model_kwargs)
+    training_stats, iou_per_class_list, decoder, batch_imgs = train_model(encoder, decoder, epochs, freq, show_stats=False, **model_kwargs)
 
     train_stats_save_path_root = os.path.join(os.path.dirname(__file__), "data", "emb_train_stats")
     os.makedirs(train_stats_save_path_root, exist_ok=True)
