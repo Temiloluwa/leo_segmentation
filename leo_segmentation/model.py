@@ -6,6 +6,7 @@ from utils import display_data_shape, get_named_dict, calc_iou_per_class,\
     log_data, load_config, summary_write_masks
 
 def mobilenet_v2_encoder(img_dims):
+    """ Initialize the encoder using weights from mobilenetv2"""
     num_channels, img_height, img_width = img_dims
     base_model = tf.keras.applications.MobileNetV2(
         weights="imagenet",  
@@ -25,6 +26,7 @@ def mobilenet_v2_encoder(img_dims):
     return encoder
 
 class Decoder(tf.keras.Model):
+    """ Decoder for the LEO model"""
   def __init__(self, dropout_probs=0.25):
     super(Decoder, self).__init__()
     self.conv1 = tf.keras.layers.Conv2D(filters=8, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
@@ -95,31 +97,66 @@ class LEO:
         self.loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
 
     def forward_encoder(self, x):
+        """Performs forward pass through the encoder"""
         encoder_outputs = self.encoder(x)
-        #latents, features = encoder_outputs[:-1], encoder_outputs[-1] 
         return encoder_outputs
 
     def forward_decoder(self, encoder_outputs):
+        """Performs forward pass through the decoder"""
         output = self.decoder(encoder_outputs)
         return output
 
     def forward_segnetwork(self, decoder_out, x, weight):
+        """ 
+            - Receives features from the decoder
+            - Concats the features with input image
+            - Convolution layer acts on the concatenated input
+            Args:
+                decoder_out(tf.tensor): decoder output features
+                x(tf.tensor): input images
+                weight(tf.tensor): kernels for the segmentation network
+            Returns:
+                pred(tf.tensor): predicted logits
+        """
         x = tf.concat([decoder_out, x], -1)
         pred = tf.nn.convolution(x, weight, strides=1, padding='SAME')
         return pred
 
-    def call(self, x):
-        o = self.forward_encoder(x)
-        o = self.forward_decoder(o)
-        o = self.forward_segnetwork(o, x, self.seg_weight)
-        return o
+    def __call__(self, x, latents=None, seg_weights=None):
+        """
+           Performs a forward pass through the entire network
+           - The Autoencoder generates features using the inputs
+           - Features are concatenated with the inputs
+           - The concatenated features are segmented
+           Args:
+                x(tf.tensor): input image
+                latents(tf.tensor): output of the bottleneck
+                seg_weights(tf.tensor): segmentation weights/kernels
+           Returns:
+                latents(tf.tensor): output of the bottleneck
+                features(tf.tensor): output of the decoder
+                pred(tf.tensor): predicted logits
+        
+        """
+        encoder_outputs = self.forward_encoder(x)
+        if latents != None:
+            encoder_outputs = encoder_outputs[:4] + [latents]
+        else:
+            latents = encoder_outputs[-1]
+        features = self.forward_decoder(encoder_outputs)
+
+        if seg_weights == None:
+            pred = self.forward_segnetwork(features, x, self.seg_weight)
+        else:
+            pred = self.forward_segnetwork(features, x, seg_weights)
+        return latents, features, pred
 
     def evaluate(self, metadata):
         num_tasks = len(metadata[0])
     
         def cal_iou(x, target, class_name, batch):
             iou_per_class = []
-            logits = self.call(x)
+            _, _ , logits = self.__call__(x)
             pred = np.argmax(logits.numpy(),axis=-1).astype(int)
             target = target.astype(int)
             iou = np.sum(np.logical_and(target, pred))/np.sum(np.logical_or(target, pred))
@@ -137,63 +174,63 @@ class LEO:
             data_dict = get_named_dict(metadata, batch)
             cal_iou(data_dict.val_imgs, data_dict.val_masks, metadata[-1], batch)
 
-
-
-    """
-    def forward_decoder(self, x, latents, weight, bias, features, target):
-        decoder_output = self.decoder(latents, features)
-        pred, loss = self.forward_segnetwork(decoder_output, x, weight, bias, target)
-        return loss, pred, decoder_output
-
-    def forward(self, x, weight, bias, target, latents=None):
-        if latents == None:
-            latents, features = self.forward_encoder(x)
-        else:
-            _, features = self.forward_encoder(x)
-        loss, pred, decoder_output = self.forward_decoder(x, latents, weight, bias, features, target)
-        return loss, pred, latents, decoder_output
-    """    
-    def leo_inner_loop(self, x, weight, bias, target):
+    @tf.function
+    def leo_inner_loop(self, x, y):
         """
-        This function does "latent code optimization" that is back propagation  until latent codes and
-        updating the latent weights
+        This function performs innerloop optimization
+            - It updates the latents taking gradients wrt the training loss
+            - It generates better features after the latents are updated
         Args:
-            data (dict) : contains tr_imgs, tr_masks, val_imgs, val_masks
-            latents (tensor) : shape ((num_classes * num_eg_per_class), latent_channels, H, W)
+            x(tf.tensor): input training image
+            y(tf.tensor): input training mask
+        
         Returns:
-            tr_loss : computed as crossentropyloss (groundtruth--> tr_imgs_mask, prediction--> einsum(tr_imgs, segmentation_weights))
-            segmentation_weights : shape(num_classes, num_eg_per_class, channels, H, W)
+            seg_weight_grad(tf.tensor): The last gradient of the training loss wrt to 
+                                        the segmenation weights
+            features(tf.tensor): The last generated features from the decoder
         """
+        
         inner_lr = self.config.hyperparameters.inner_loop_lr
-        tr_loss, _ , latents, _ = self.forward(x, weight, bias, target)
-        #initial_latents = latents.clone()   
-        for _ in range(self.config.hyperparameters.num_adaptation_steps):
-            latents_grad = torch.autograd.grad(tr_loss, [latents], create_graph=False)[0]
-            with torch.no_grad():
+        with tf.GradientTape(persistent=True) as tape:
+            tape.watch(self.seg_weight)
+            latents, _, pred = self.__call__(x)
+            tr_loss =  self.loss_fn(y, pred) 
+            for _ in range(self.config.hyperparameters.num_adaptation_steps):
+                latents_grad = tape.gradient(tr_loss, latents)
                 latents -= inner_lr * latents_grad
-            tr_loss, _ , latents, tr_decoder_output  = self.forward(x, weight, bias, target, latents)
-        return tr_loss, tr_decoder_output
+                latents, features, pred = self.__call__(x, latents)
+                tr_loss =  self.loss_fn(y, pred)
+        seg_weight_grad = tape.gradient(tr_loss, self.seg_weight)   
+        return seg_weight_grad, features
 
-    def finetuning_inner_loop(self, data, tr_loss, tr_decoder_output, weight, bias):
+    @tf.function
+    def finetuning_inner_loop(self, data_dict, tr_features, seg_weight_grad):
         """
         This function does "segmentation_weights optimization"
         Args:
-            data (dict) : contains tr_imgs, tr_masks, val_imgs, val_masks
+            data_dict (dict) : contains tr_imgs, tr_masks, val_imgs, val_masks
             leo_loss (tensor_0shape) : computed as crossentropyloss (groundtruth--> tr_imgs_mask, prediction--> einsum(tr_imgs, segmentation_weights))
            segmentation_weights (tensor) : shape(num_classes, num_eg_per_class, channels, H, W)
         Returns:
             val_loss (tensor_0shape) : computed as crossentropyloss (groundtruth--> val_imgs_mask, prediction--> einsum(val_imgs, segmentation_weights))
         """
         finetuning_lr = self.config.hyperparameters.finetuning_lr
-        for _ in range(self.config.hyperparameters.num_finetuning_steps):
-            grad_weight, grad_bias = torch.autograd.grad(tr_loss, [weight, bias])
-            with torch.no_grad():
-                weight -= finetuning_lr * grad_weight
-                bias -= finetuning_lr * grad_bias
-            _, tr_loss = self.forward_segnetwork(tr_decoder_output, data.tr_imgs, weight, bias, data.tr_masks)
-        val_loss, _, _, _ = self.forward(data.val_imgs, weight, bias, data.val_masks)
-        return val_loss
-    
+        weight = self.seg_weight - finetuning_lr * seg_weight_grad
+        with tf.GradientTape(persistent=True) as tape:
+            tape.watch(weight)
+            for _ in range(self.config.hyperparameters.num_finetuning_steps - 1):
+                pred = self.forward_segnetwork(tr_features, data_dict.tr_imgs, weight)
+                tr_loss =  self.loss_fn(data_dict.tr_masks, pred)
+                seg_weight_grad = tape.gradient(tr_loss, weight)
+                weight -= finetuning_lr * seg_weight_grad
+                
+            latents = self.forward_encoder(data_dict.val_imgs)
+            features = self.forward_decoder(latents)
+            pred = self.forward_segnetwork(features, data_dict.val_imgs, weight)
+            val_loss =  self.loss_fn(data_dict.val_masks, pred)
+            seg_weight_grad =  tape.gradient(val_loss, weight)
+            decoder_gradients = tape.gradient(val_loss, self.decoder.trainable_variables)
+        return val_loss, seg_weight_grad, decoder_gradients
     
     def compute_loss(self, metadata, train_stats, mode="meta_train"):
         """
@@ -212,31 +249,25 @@ class LEO:
         if train_stats.episode % self.config.display_stats_interval == 1:
             display_data_shape(metadata)
 
+        total_val_loss = []
         total_gradients = None
         for batch in range(num_tasks):
             data_dict = get_named_dict(metadata, batch)
-            #weights = self.seg_weight.clone()
-            #bias = self.seg_bias.clone()
-            #tr_loss, tr_decoder_output = self.leo_inner_loop(data_dict.tr_imgs, weights, bias, data_dict.tr_masks)
-            total_val_loss = []
-            with tf.GradientTape(persistent=True) as tape:
-                tape.watch(self.seg_weight)
-                pred = self.call(data_dict.tr_imgs)
-                tr_loss =  self.loss_fn(data_dict.tr_masks, pred)
-                total_val_loss.append(tr_loss)
-                #val_loss = self.finetuning_inner_loop(data_dict, tr_loss, tr_decoder_output, weights, bias)
-            gradients = tape.gradient(tr_loss, self.decoder.trainable_variables)
-            gradients = [grad/num_tasks for grad in gradients]
-            
+            seg_weight_grad, features = self.leo_inner_loop(data_dict.tr_imgs, data_dict.tr_masks)
+            val_loss, seg_weight_grad, decoder_gradients = self.finetuning_inner_loop(data_dict, features, seg_weight_grad)
+            total_val_loss.append(val_loss)
+            decoder_gradients = [grad/num_tasks for grad in decoder_gradients]
+
             if total_gradients == None:
-                total_gradients = gradients
-                seg_grad = tape.gradient(tr_loss, self.seg_weight)/num_tasks
+                total_gradients = decoder_gradients
+                seg_weight_grad = seg_weight_grad/num_tasks
             else:
-                total_gradients = [total_gradients[i] + gradients[i] for i in range(len(gradients))]
-                seg_grad += tape.gradient(tr_loss, self.seg_weight)/num_tasks
+                total_gradients = [total_gradients[i] + decoder_gradients[i] for i in range(len(decoder_gradients))]
+                seg_weight_grad += seg_weight_grad/num_tasks
+        
         total_val_loss = sum(total_val_loss)/len(total_val_loss)
         self.optimizer.apply_gradients(zip(total_gradients, self.decoder.trainable_variables))
-        self.optimizer.apply_gradients([(seg_grad, self.seg_weight)])
+        self.optimizer.apply_gradients([(seg_weight_grad, self.seg_weight)])
         """"
         stats_data = {
             "mode": mode,
