@@ -71,12 +71,12 @@ class Decoder(tf.keras.Model):
     x = self.conv4b(x)
     x = self.upsample4(x)
     x = self.concat([x, encoder_outputs[-5]])
-    emb_out = self.conv5(x)
-    x = self.dropout5(emb_out)
+    x = self.conv5(x)
+    x = self.dropout5(x)
     x = self.conv5b(x)
-    x = self.upsample5(x)
-    output = self.convfinal(x)
-    return [output, emb_out]
+    output = self.upsample5(x)
+    #output = self.convfinal(x)
+    return output
     
 class LEO:
     """
@@ -90,24 +90,28 @@ class LEO:
         self.encoder = mobilenet_v2_encoder(self.img_dims)
         self.decoder = Decoder()
         self.optimizer = tf.keras.optimizers.Adam(1e-4)
-        #seg_network =  nn.Conv2d(16 + 8*4 + 3 , 2, kernel_size=3, stride=1, padding=1)
-        #self.seg_weight = seg_network.weight.detach().to(self.device)
-        #self.seg_weight.requires_grad = True
-        #self.seg_bias = seg_network.bias.detach().to(self.device)
+        self.init = tf.initializers.GlorotUniform()
+        self.seg_weight = tf.Variable(self.init((3, 3, 43, 2)))
         self.loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
 
     def forward_encoder(self, x):
         encoder_outputs = self.encoder(x)
-        latents, features = encoder_outputs[:-1], encoder_outputs[-1] 
+        #latents, features = encoder_outputs[:-1], encoder_outputs[-1] 
         return encoder_outputs
 
     def forward_decoder(self, encoder_outputs):
-        output, _ = self.decoder(encoder_outputs)
+        output = self.decoder(encoder_outputs)
         return output
+
+    def forward_segnetwork(self, decoder_out, x, weight):
+        x = tf.concat([decoder_out, x], -1)
+        pred = tf.nn.convolution(x, weight, strides=1, padding='SAME')
+        return pred
 
     def call(self, x):
         o = self.forward_encoder(x)
         o = self.forward_decoder(o)
+        o = self.forward_segnetwork(o, x, self.seg_weight)
         return o
 
     def evaluate(self, metadata):
@@ -136,12 +140,6 @@ class LEO:
 
 
     """
-    def forward_segnetwork(self, decoder_out, x, weight, bias, target):
-        o = torch.cat([decoder_out, x], dim=1)
-        pred = F.conv2d(o, weight, bias, padding=1)
-        loss = self.loss_fn(pred, target.long())
-        return pred, loss
-    
     def forward_decoder(self, x, latents, weight, bias, features, target):
         decoder_output = self.decoder(latents, features)
         pred, loss = self.forward_segnetwork(decoder_output, x, weight, bias, target)
@@ -221,19 +219,24 @@ class LEO:
             #bias = self.seg_bias.clone()
             #tr_loss, tr_decoder_output = self.leo_inner_loop(data_dict.tr_imgs, weights, bias, data_dict.tr_masks)
             total_val_loss = []
-            with tf.GradientTape() as tape:
+            with tf.GradientTape(persistent=True) as tape:
+                tape.watch(self.seg_weight)
                 pred = self.call(data_dict.tr_imgs)
                 tr_loss =  self.loss_fn(data_dict.tr_masks, pred)
                 total_val_loss.append(tr_loss)
                 #val_loss = self.finetuning_inner_loop(data_dict, tr_loss, tr_decoder_output, weights, bias)
             gradients = tape.gradient(tr_loss, self.decoder.trainable_variables)
             gradients = [grad/num_tasks for grad in gradients]
+            
             if total_gradients == None:
                 total_gradients = gradients
+                seg_grad = tape.gradient(tr_loss, self.seg_weight)/num_tasks
             else:
                 total_gradients = [total_gradients[i] + gradients[i] for i in range(len(gradients))]
+                seg_grad += tape.gradient(tr_loss, self.seg_weight)/num_tasks
         total_val_loss = sum(total_val_loss)/len(total_val_loss)
         self.optimizer.apply_gradients(zip(total_gradients, self.decoder.trainable_variables))
+        self.optimizer.apply_gradients([(seg_grad, self.seg_weight)])
         """"
         stats_data = {
             "mode": mode,
