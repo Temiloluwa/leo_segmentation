@@ -69,12 +69,10 @@ class Datagenerator(Dataset):
         n_train_per_class = config.n_train_per_class[self._data_type]
         batch_size = config.num_tasks[self._data_type]
         img_datasets = datasets.ImageFolder(root = os.path.join(dataset_root_path, "images"))
-        mask_datasets = datasets.ImageFolder(root = os.path.join(dataset_root_path, "masks"))
-
+        
         if batch_size > len(classes):
             raise ValueError("number of tasks must be less than the number of available classes")
 
-        
         tr_imgs = []
         tr_masks = []
         val_imgs = []
@@ -122,11 +120,14 @@ class Datagenerator(Dataset):
             val_imgs.append(np.array([self.transform_image(Image.open(i)) for i in val_img_paths]))
             val_masks.append(np.array([self.transform_mask(Image.open(i)) for i in val_masks_paths]))
 
+        total_tr_img_paths = tr_img_paths + tr_masks_paths
+        total_vl_img_paths = val_img_paths + val_masks_paths
         assert len(classes_selected) == len(set(classes_selected)), "classes are not unique"
+        
 
         return np.array(tr_imgs), np.array(tr_masks),\
                np.array(val_imgs), np.array(val_masks),\
-               classes_selected
+               classes_selected, total_tr_img_paths, total_vl_img_paths
 
     def get_batch_data(self):
         return self.__getitem__(0)

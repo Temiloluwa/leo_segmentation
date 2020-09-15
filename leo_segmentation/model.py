@@ -1,5 +1,3 @@
-# Architecture definition
-# Computational graph creation
 import torch, os, numpy as np
 import tensorflow as tf
 from utils import display_data_shape, get_named_dict, calc_iou_per_class,\
@@ -27,58 +25,57 @@ def mobilenet_v2_encoder(img_dims):
 
 class Decoder(tf.keras.Model):
     """ Decoder for the LEO model"""
-  def __init__(self, dropout_probs=0.25):
-    super(Decoder, self).__init__()
-    self.conv1 = tf.keras.layers.Conv2D(filters=8, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-    self.conv1b = tf.keras.layers.Conv2D(filters=8, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-    self.conv2 = tf.keras.layers.Conv2D(filters=8*2, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-    self.conv2b = tf.keras.layers.Conv2D(filters=8*2, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-    self.conv3 = tf.keras.layers.Conv2D(filters=8*3, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-    self.conv3b = tf.keras.layers.Conv2D(filters=8*3, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-    self.conv4 = tf.keras.layers.Conv2D(filters=8*4, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-    self.conv4b = tf.keras.layers.Conv2D(filters=8*4, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-    self.conv5 = tf.keras.layers.Conv2D(filters=8*5, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-    self.conv5b = tf.keras.layers.Conv2D(filters=8*5, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-    self.convfinal = tf.keras.layers.Conv2D(filters=2, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-    self.upsample1 = tf.keras.layers.Conv2DTranspose(8, 3, strides=2,padding='same')
-    self.upsample2 = tf.keras.layers.Conv2DTranspose(8*2, 3, strides=2,padding='same')
-    self.upsample3 = tf.keras.layers.Conv2DTranspose(8*3, 3, strides=2,padding='same')
-    self.upsample4 = tf.keras.layers.Conv2DTranspose(8*4, 3, strides=2,padding='same')
-    self.upsample5 = tf.keras.layers.Conv2DTranspose(8*5, 3, strides=2,padding='same')
-    self.concat = tf.keras.layers.Concatenate()
-    self.dropout1 = tf.keras.layers.Dropout(dropout_probs)
-    self.dropout2 = tf.keras.layers.Dropout(dropout_probs)
-    self.dropout3 = tf.keras.layers.Dropout(dropout_probs)
-    self.dropout4 = tf.keras.layers.Dropout(dropout_probs)
-    self.dropout5 = tf.keras.layers.Dropout(dropout_probs)
+    def __init__(self, dropout_probs=0.25):
+        super(Decoder, self).__init__()
+        self.conv1 = tf.keras.layers.Conv2D(filters=8, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv1b = tf.keras.layers.Conv2D(filters=8, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv2 = tf.keras.layers.Conv2D(filters=8*2, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv2b = tf.keras.layers.Conv2D(filters=8*2, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv3 = tf.keras.layers.Conv2D(filters=8*3, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv3b = tf.keras.layers.Conv2D(filters=8*3, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv4 = tf.keras.layers.Conv2D(filters=8*4, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv4b = tf.keras.layers.Conv2D(filters=8*4, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv5 = tf.keras.layers.Conv2D(filters=8*5, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv5b = tf.keras.layers.Conv2D(filters=8*5, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.convfinal = tf.keras.layers.Conv2D(filters=2, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.upsample1 = tf.keras.layers.Conv2DTranspose(8, 3, strides=2,padding='same')
+        self.upsample2 = tf.keras.layers.Conv2DTranspose(8*2, 3, strides=2,padding='same')
+        self.upsample3 = tf.keras.layers.Conv2DTranspose(8*3, 3, strides=2,padding='same')
+        self.upsample4 = tf.keras.layers.Conv2DTranspose(8*4, 3, strides=2,padding='same')
+        self.upsample5 = tf.keras.layers.Conv2DTranspose(8*5, 3, strides=2,padding='same')
+        self.concat = tf.keras.layers.Concatenate()
+        self.dropout1 = tf.keras.layers.Dropout(dropout_probs)
+        self.dropout2 = tf.keras.layers.Dropout(dropout_probs)
+        self.dropout3 = tf.keras.layers.Dropout(dropout_probs)
+        self.dropout4 = tf.keras.layers.Dropout(dropout_probs)
+        self.dropout5 = tf.keras.layers.Dropout(dropout_probs)
 
-  def call(self, encoder_outputs):
-    x = self.conv1(encoder_outputs[-1])
-    x = self.dropout1(x)
-    x = self.conv1b(x)
-    x = self.upsample1(x)
-    x = self.concat([x, encoder_outputs[-2]])
-    x = self.conv2(x)
-    x = self.dropout2(x)
-    x = self.conv2b(x)
-    x = self.upsample2(x)
-    x = self.concat([x, encoder_outputs[-3]])
-    x = self.conv3(x)
-    x = self.dropout3(x)
-    x = self.conv3b(x)
-    x = self.upsample3(x)
-    x = self.concat([x, encoder_outputs[-4]])
-    x = self.conv4(x)
-    x = self.dropout4(x)
-    x = self.conv4b(x)
-    x = self.upsample4(x)
-    x = self.concat([x, encoder_outputs[-5]])
-    x = self.conv5(x)
-    x = self.dropout5(x)
-    x = self.conv5b(x)
-    output = self.upsample5(x)
-    #output = self.convfinal(x)
-    return output
+    def call(self, encoder_outputs):
+        x = self.conv1(encoder_outputs[-1])
+        x = self.dropout1(x)
+        x = self.conv1b(x)
+        x = self.upsample1(x)
+        x = self.concat([x, encoder_outputs[-2]])
+        x = self.conv2(x)
+        x = self.dropout2(x)
+        x = self.conv2b(x)
+        x = self.upsample2(x)
+        x = self.concat([x, encoder_outputs[-3]])
+        x = self.conv3(x)
+        x = self.dropout3(x)
+        x = self.conv3b(x)
+        x = self.upsample3(x)
+        x = self.concat([x, encoder_outputs[-4]])
+        x = self.conv4(x)
+        x = self.dropout4(x)
+        x = self.conv4b(x)
+        x = self.upsample4(x)
+        x = self.concat([x, encoder_outputs[-5]])
+        x = self.conv5(x)
+        x = self.dropout5(x)
+        x = self.conv5b(x)
+        output = self.upsample5(x)
+        return output
     
 class LEO:
     """
@@ -122,7 +119,7 @@ class LEO:
         pred = tf.nn.convolution(x, weight, strides=1, padding='SAME')
         return pred
 
-    def __call__(self, x, latents=None, seg_weights=None):
+    def __call__(self, x, latents=None):
         """
            Performs a forward pass through the entire network
            - The Autoencoder generates features using the inputs
@@ -131,7 +128,6 @@ class LEO:
            Args:
                 x(tf.tensor): input image
                 latents(tf.tensor): output of the bottleneck
-                seg_weights(tf.tensor): segmentation weights/kernels
            Returns:
                 latents(tf.tensor): output of the bottleneck
                 features(tf.tensor): output of the decoder
@@ -144,11 +140,7 @@ class LEO:
         else:
             latents = encoder_outputs[-1]
         features = self.forward_decoder(encoder_outputs)
-
-        if seg_weights == None:
-            pred = self.forward_segnetwork(features, x, self.seg_weight)
-        else:
-            pred = self.forward_segnetwork(features, x, seg_weights)
+        pred = self.forward_segnetwork(features, x, self.seg_weight)
         return latents, features, pred
 
     def evaluate(self, metadata):
@@ -164,7 +156,7 @@ class LEO:
             mean_iou_per_class = np.mean(iou_per_class)
             print(f"class: {class_name[batch]}, iou: {mean_iou_per_class}")
         
-        print("**Train**")
+        print("\n**Train**")
         for batch in range(num_tasks):   
             data_dict = get_named_dict(metadata, batch)
             cal_iou(data_dict.tr_imgs, data_dict.tr_masks, metadata[-1], batch)
@@ -173,6 +165,10 @@ class LEO:
         for batch in range(num_tasks):
             data_dict = get_named_dict(metadata, batch)
             cal_iou(data_dict.val_imgs, data_dict.val_masks, metadata[-1], batch)
+        
+        #log_filename = os.path.join(os.path.dirname(__file__), "data", "models",\
+        #                 f"experiment_{self.config.experiment.number}", "val_stats_log.txt")
+        #log_data(log_msg, log_filename)
 
     @tf.function
     def leo_inner_loop(self, x, y):
@@ -206,13 +202,15 @@ class LEO:
     @tf.function
     def finetuning_inner_loop(self, data_dict, tr_features, seg_weight_grad):
         """
-        This function does "segmentation_weights optimization"
+        Finetunes the segmenation weights/kernels by performing MAML
         Args:
-            data_dict (dict) : contains tr_imgs, tr_masks, val_imgs, val_masks
-            leo_loss (tensor_0shape) : computed as crossentropyloss (groundtruth--> tr_imgs_mask, prediction--> einsum(tr_imgs, segmentation_weights))
-           segmentation_weights (tensor) : shape(num_classes, num_eg_per_class, channels, H, W)
+            data_dict (dict): contains tr_imgs, tr_masks, val_imgs, val_masks
+            tr_features (tf.tensor): tensor containing decoder features
+            segmentation_grad (tf.tensor): gradients of the training loss to the segmenation weights
         Returns:
-            val_loss (tensor_0shape) : computed as crossentropyloss (groundtruth--> val_imgs_mask, prediction--> einsum(val_imgs, segmentation_weights))
+            val_loss (tf.tensor): validation loss
+            seg_weight_grad (tf.tensor): gradient of validation loss wrt segmentation weights
+            decoder_gradients (tf.tensor): gradient of validation loss wrt decoder weights
         """
         finetuning_lr = self.config.hyperparameters.finetuning_lr
         weight = self.seg_weight - finetuning_lr * seg_weight_grad
@@ -224,8 +222,8 @@ class LEO:
                 seg_weight_grad = tape.gradient(tr_loss, weight)
                 weight -= finetuning_lr * seg_weight_grad
                 
-            latents = self.forward_encoder(data_dict.val_imgs)
-            features = self.forward_decoder(latents)
+            encoder_outputs = self.forward_encoder(data_dict.val_imgs)
+            features = self.forward_decoder(encoder_outputs)
             pred = self.forward_segnetwork(features, data_dict.val_imgs, weight)
             val_loss =  self.loss_fn(data_dict.val_masks, pred)
             seg_weight_grad =  tape.gradient(val_loss, weight)
@@ -234,16 +232,16 @@ class LEO:
     
     def compute_loss(self, metadata, train_stats, mode="meta_train"):
         """
-        Computes the  outer loop loss
+            Performs meta optimization across tasks
+            returns the meta validation loss across tasks 
 
         Args:
-            model (object) : leo model
-            meta_dataloader (object): Dataloader 
-            train_stats: (object): train stats object
-            config (dict): config
-            mode (str): meta_train, meta_val or meta_test
+            metadata(dict): dictionary containing training data
+            train_stats(object): object that stores training statistics 
+            mode(str): meta_train, meta_val or meta_test
         Returns:
-            (tuple) total_val_loss (list), train_stats
+            total_val_loss(float32): meta-validation loss
+            train_stats(object): object that stores training statistics 
         """
         num_tasks = len(metadata[0])
         if train_stats.episode % self.config.display_stats_interval == 1:
@@ -265,40 +263,19 @@ class LEO:
                 total_gradients = [total_gradients[i] + decoder_gradients[i] for i in range(len(decoder_gradients))]
                 seg_weight_grad += seg_weight_grad/num_tasks
         
-        total_val_loss = sum(total_val_loss)/len(total_val_loss)
+        total_val_loss = float(sum(total_val_loss)/len(total_val_loss))
         self.optimizer.apply_gradients(zip(total_gradients, self.decoder.trainable_variables))
         self.optimizer.apply_gradients([(seg_weight_grad, self.seg_weight)])
-        """"
         stats_data = {
             "mode": mode,
             "kl_loss": 0,
             "total_val_loss":total_val_loss
         }
         train_stats.update_stats(**stats_data)
-        """
-        return total_val_loss
+        
+        return total_val_loss, train_stats
 
-    def evaluate_val_imgs(self, metadata, classes, train_stats, writer):
-        log_msg = ""
-        num_tasks = len(metadata[0])
-        for batch in range(num_tasks):
-            data_dict = get_named_dict(metadata, batch)
-            weights = self.seg_weight.clone()
-            bias = self.seg_bias.clone()
-            _, predictions, _, _ = self.forward(data_dict.val_imgs, weights, bias, data_dict.val_masks)
-            iou = calc_iou_per_class(predictions, data_dict.val_masks)
-            batch_msg = f"\nClass: {classes[batch]}, Episode: {train_stats.episode}, Val IOU: {iou}"
-            print(batch_msg[1:])
-            log_msg += batch_msg
-            grid_title = f"pred_{train_stats.episode}_class_{classes[batch]}"
-            summary_write_masks(predictions, writer, grid_title)
-            grid_title = f"ground_truths_{train_stats.episode}_class_{classes[batch]}"
-            summary_write_masks(data_dict.val_masks, writer, grid_title, ground_truth=True)
-        log_filename = os.path.join(os.path.dirname(__file__), "data", "models",\
-                         f"experiment_{self.config.experiment.number}", "val_stats_log.txt")
-        log_data(log_msg, log_filename)
-
-
+#TO-DO: Change from pytorch to tensorflow
 def save_model(model, optimizer, config, stats):
     """
     Save the model while training based on check point interval
@@ -362,6 +339,8 @@ def save_model(model, optimizer, config, stats):
                 if trials == 3:
                     raise ValueError("Supply the correct answer to the question")
 
+
+#TO-DO: Change from pytorch to tensorflow
 def load_model(config):
 
     """

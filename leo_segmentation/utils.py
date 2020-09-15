@@ -12,7 +12,6 @@ def load_config(config_path:str = "data/config.json"):
         config = json.loads(f.read())
     return edict(config)
 
-
 def meta_classes_selector(config, dataset, generate_new, shuffle_classes=False):
     """
     Returns a dictionary containing classes for meta_train, meta_val, and meta_test_splits
@@ -67,6 +66,7 @@ def load_npy(filename):
     filename = f"{filename}.npy" if len(os.path.splitext(filename)[-1]) == 0 else filename
     with open(filename, "rb") as f:
         return np.load(f)
+
 def save_pickled_data(data, data_path):
     """Saves a pickle file"""
     with open(data_path, "wb") as f:
@@ -78,20 +78,6 @@ def load_pickled_data(data_path):
     with open(data_path, "rb") as f:
         data = pickle.load(f)
     return data
-
-def numpy_to_tensor(np_data):
-    """Converts numpy array to pytorch tensor"""
-    config = load_config()
-    np_data = np_data.astype(config.dtype)
-    device = torch.device("cuda:0" if torch.cuda.is_available() and config.use_gpu else "cpu")
-    return torch.from_numpy(np_data).to(device)
-    
-def tensor_to_numpy(pytensor):
-    """Converts pytorch tensor to numpy"""
-    if pytensor.is_cuda:
-        return pytensor.cpu().detach().numpy()
-    else:
-        return pytensor.detach().numpy()
 
 def check_experiment(config):
     """
@@ -137,23 +123,9 @@ def check_experiment(config):
         create_log()
         return None
 
-def prepare_inputs(data):
-    """
-    change the channel dimension for data
-    Args:
-        data (tensor): (num_examples_per_class, height, width, channels)
-    Returns:
-        data (tensor): (num_examples_per_class, channels, height, width)
-    """
-  
-    if len(data.shape) == 4:
-        data = data.permute((0, 3, 1, 2))
-    return data
-
-
 def get_named_dict(metadata, batch):
     """Returns a named dict"""
-    tr_imgs, tr_masks, val_imgs, val_masks, _ = metadata
+    tr_imgs, tr_masks, val_imgs, val_masks, _, _, _ = metadata
     data_dict = { 'tr_imgs':tr_imgs[batch],
                   'tr_masks':tr_masks[batch],
                   'val_imgs':val_imgs[batch],
@@ -164,7 +136,7 @@ def get_named_dict(metadata, batch):
 def display_data_shape(metadata):
     """Displays data shape"""
     if type(metadata) == tuple:
-        tr_imgs, tr_masks, val_imgs, val_masks, _ = metadata
+        tr_imgs, tr_masks, val_imgs, val_masks, _, _ = metadata
         print(f"num tasks: {len(tr_imgs)}")
     else:
         tr_imgs, tr_masks, val_imgs, val_masks = metadata.tr_imgs,\
@@ -187,8 +159,8 @@ def calc_iou_per_class(pred_x, targets):
     """Calculates iou"""
     iou_per_class = []
     for i in range(len(pred_x)):
-        pred = np.argmax(pred_x[i].cpu().detach().numpy(), 0).astype(int)
-        target = targets[i].cpu().detach().numpy().astype(int)
+        pred = np.argmax(pred_x[i].numpy(), 0).astype(int)
+        target = targets[i].numpy().astype(int)
         iou = np.sum(np.logical_and(target, pred))/np.sum(np.logical_or(target, pred))
         iou_per_class.append(iou)
         mean_iou_per_class = np.mean(iou_per_class)
@@ -202,9 +174,9 @@ def plot_masks(mask_data, ground_truth=False):
         ground_truth(bool) - True if mask is a groundtruth else it is a prediction
     """
     if ground_truth:
-        plt.imshow(np.mean(mask_data.cpu().detach().numpy(), 0)/2 + 0.5, cmap="gray")
+        plt.imshow(np.mean(mask_data.numpy(), 0)/2 + 0.5, cmap="gray")
     else:
-        plt.imshow(np.mean(mask_data.cpu().detach().numpy())/2 + 0.5, cmap="gray")
+        plt.imshow(np.mean(mask_data.numpy())/2 + 0.5, cmap="gray")
 
 
 def summary_write_masks(batch_data, writer, grid_title, ground_truth=False):
