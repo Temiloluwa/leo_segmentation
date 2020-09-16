@@ -14,9 +14,9 @@
         "n_val_per_class":{"meta_train":5, "meta_val":"rest", "meta_test":"rest"},
         "num_tasks":{"meta_train":7, "meta_val":5, "meta_test":5}
     },
-    "experiment":{"number":2, "episode":1, "description":"using_new_embeddings", "prompt_deletion":false},
+    "experiment":{"number":3, "episode":1, "description":"using_new_embeddings", "prompt_deletion":false},
     "hyperparameters":{
-        "outer_loop_lr":1e-5,
+        "outer_loop_lr":1e-4,
         "inner_loop_lr":1e-5,
         "finetuning_lr":1e-5,
         "dropout_rate":0.2,
@@ -24,6 +24,6 @@
         "num_latents":50,
         "num_finetuning_steps":5,
         "num_adaptation_steps":5,
-        "episodes":100
+        "episodes":1
     }
 }

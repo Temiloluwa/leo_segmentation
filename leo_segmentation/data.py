@@ -1,4 +1,4 @@
-from .utils import numpy_to_tensor, meta_classes_selector, load_npy
+from .utils import numpy_to_tensor, meta_classes_selector, load_npy, print_to_string_io
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, utils, datasets
 import collections, random
@@ -64,7 +64,13 @@ class Datagenerator(Dataset):
             
             img_paths = [i for i in img_datasets.loader if selected_class in i]
             random.shuffle(img_paths)
-            img_paths  = list(np.random.choice(img_paths , n_train_per_class + n_val_per_class, replace=False))
+
+            if type(n_val_per_class) == str:
+                path_to_class = os.path.join(dataset_root_path, "images", f"{selected_class}")
+                n_val_per_class = len(os.listdir(path_to_class)) - n_train_per_class
+            
+            if self._data_type == "meta_train":
+                img_paths  = list(np.random.choice(img_paths , n_train_per_class + n_val_per_class, replace=False))
             
             for img_path in img_paths:
                 data_path_assertions(img_path, "images")
@@ -110,11 +116,13 @@ class TrainingStats():
         self.mode = kwargs["mode"]
         self.kl_loss = kwargs["kl_loss"]
         self.total_val_loss = kwargs["total_val_loss"]
+        self.mean_iou_dict =  kwargs["mean_iou_dict"]
         self._stats.append({
             "mode": self.mode,
             "episode": self.episode,
             "kl_loss": self.kl_loss,
-            "total_val_loss": self.total_val_loss
+            "total_val_loss": self.total_val_loss,
+            "mean_iou_dict":self.mean_iou_dict
         })
         self.log_model_stats_to_file()
 
@@ -137,10 +145,12 @@ class TrainingStats():
         model_root = os.path.join(os.path.dirname(__file__), self.config.data_path, "models")
         model_dir  = os.path.join(model_root, "experiment_{}"\
                     .format(self.config.experiment.number))
+        log_file = "train_log.txt" if self.mode == "meta_train" else "val_log.txt"
 
-        with open(os.path.join(model_dir, "model_log.txt"), "a") as f:
+        with open(os.path.join(model_dir, log_file), "a") as f:
+            mean_iou_string = print_to_string_io(self.mean_iou_dict, pretty_print=True)
             msg = f"\nmode:{self.mode}, episode:{self.episode:03d}, kl_loss:{self.kl_loss:2f}, " 
-            msg += f"total_val_loss:{self.total_val_loss:2f}"
+            msg += f"total_val_loss:{self.total_val_loss:2f} \nval_mean_iou:{mean_iou_string}"
             f.write(msg)
    
     def get_stats(self):
@@ -150,7 +160,8 @@ class TrainingStats():
         return self._stats[-1]
 
     def disp_stats(self):
+        mean_iou_string = print_to_string_io(self.mean_iou_dict, pretty_print=True)
         msg = f"\nmode:{self.mode}, episode:{self.episode:03d}, kl_loss:{self.kl_loss:2f}, " 
-        msg += f"total_val_loss:{self.total_val_loss:2f}"
+        msg += f"total_val_loss:{self.total_val_loss:2f} \nval_mean_iou:{mean_iou_string}"
         print(msg)
 

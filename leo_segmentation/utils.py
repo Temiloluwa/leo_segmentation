@@ -3,8 +3,11 @@ import torch.optim as optim
 import os, pickle, json, random
 import numpy as np
 import torchvision
+import sys, pprint
 from matplotlib import pyplot as plt
 from easydict import EasyDict as edict
+from io import StringIO 
+
 
 def load_config(config_path:str = "leo_segmentation/data/config.json"):
     """Loads config file"""
@@ -111,10 +114,10 @@ def check_experiment(config):
             os.makedirs(model_dir, exist_ok=True)
         msg = f"*********************Experiment {experiment.number}********************\n"
         msg += f"Description: {experiment.description}"
-        log_filename = os.path.join(model_dir, "model_log.txt")
+        log_filename = os.path.join(model_dir, "train_log.txt")
         log_data(msg, log_filename)
-        log_filename = os.path.join(model_dir, "val_stats_log.txt")
-        msg = "*******************Val stats *************"
+        log_filename = os.path.join(model_dir, "val_log.txt")
+        msg = "******************* Val stats *************\n"
         log_data(msg, log_filename)
         return 
 
@@ -191,7 +194,7 @@ def calc_iou_per_class(pred_x, targets):
         target = targets[i].cpu().detach().numpy().astype(int)
         iou = np.sum(np.logical_and(target, pred))/np.sum(np.logical_or(target, pred))
         iou_per_class.append(iou)
-        mean_iou_per_class = np.mean(iou_per_class)
+    mean_iou_per_class = np.mean(iou_per_class)
     return mean_iou_per_class
 
 def one_hot_target(mask, channel_dim=1):
@@ -245,4 +248,18 @@ def summary_write_masks(batch_data, writer, grid_title, ground_truth=False):
         #plot_masks(masks_grid)
 
     writer.add_image(grid_title, masks_grid, episode)
+
+
+def print_to_string_io(variable_to_print, pretty_print=True):
+    """ Prints value to string_io and returns value"""
+    previous_stdout = sys.stdout
+    sys.stdout = string_buffer = StringIO()
+    pp = pprint.PrettyPrinter(indent=4)
+    if pretty_print:
+        pp.pprint(variable_to_print)
+    else:
+        print(variable_to_print)
+    sys.stdout = previous_stdout
+    string_value = string_buffer.getvalue()
+    return string_value
 

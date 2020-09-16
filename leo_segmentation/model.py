@@ -137,7 +137,7 @@ class LEO(nn.Module):
             tr_loss, segmentation_weights, _ = self.forward_decoder(inputs, latents, target)
         return tr_loss, segmentation_weights
 
-    def finetuning_inner_loop(self, data, tr_loss, seg_weights):
+    def finetuning_inner_loop(self, data, tr_loss, seg_weights, evaluate=False):
         """
         This function does "segmentation_weights optimization"
         Args:
@@ -153,8 +153,10 @@ class LEO(nn.Module):
             with torch.no_grad():
                 seg_weights -= finetuning_lr * seg_weights_grad
             tr_loss, _ = self.calculate_inner_loss(data.tr_data, data.tr_data_masks, seg_weights)
-        val_loss, _ = self.calculate_inner_loss(data.val_data, data.val_data_masks, seg_weights)
-        return val_loss
+        val_loss, predictions = self.calculate_inner_loss(data.val_data, data.val_data_masks, seg_weights)
+        if evaluate:
+            mean_iou = calc_iou_per_class(predictions, data.val_data_masks)
+        return val_loss, mean_iou
 
     def forward(self, tr_data, tr_data_masks, val_data, val_masks):
         metadata = (tr_data, tr_data_masks, val_data, val_masks, "") 
@@ -182,8 +184,10 @@ class LEO(nn.Module):
         num_tasks = len(metadata[0])
         if train_stats.episode % self.config.display_stats_interval == 1:
             display_data_shape(metadata)
+        classes = metadata[-1]
         total_val_loss = []
         kl_losses = []
+        mean_iou_dict = {} 
         for batch in range(num_tasks):
             data_dict = get_named_dict(metadata, batch)
             latents, kl_loss = self.forward_encoder(data_dict.tr_data)
@@ -191,43 +195,24 @@ class LEO(nn.Module):
             tr_loss, adapted_seg_weights = self.leo_inner_loop(\
                             data_dict.tr_data, latents, data_dict.tr_data_masks)
 
-            val_loss = self.finetuning_inner_loop(data_dict, tr_loss, adapted_seg_weights)
+            val_loss, mean_iou = self.finetuning_inner_loop(data_dict, tr_loss, \
+                                                            adapted_seg_weights, evaluate=True)
+            mean_iou_dict[classes[batch]] = mean_iou
             total_val_loss.append(val_loss)
             kl_loss = kl_loss * self.config.hyperparameters.kl_weight
             kl_losses.append(kl_loss)
-
+            
         total_val_loss = sum(total_val_loss)/len(total_val_loss)
         total_kl_loss = sum(kl_losses)/len(kl_losses)
         total_loss = total_val_loss + total_kl_loss
         stats_data = {
             "mode": mode,
             "kl_loss": total_kl_loss,
-            "total_val_loss":total_val_loss
+            "total_val_loss":total_val_loss,
+            "mean_iou_dict":mean_iou_dict
         }
         train_stats.update_stats(**stats_data)
         return total_loss, train_stats
-
-
-    def evaluate_val_data(self, metadata, classes, train_stats, writer):
-        log_msg = ""
-        num_tasks = len(metadata[0])
-        for batch in range(num_tasks):
-            data_dict = get_named_dict(metadata, batch)
-            latents, _ = self.forward_encoder(data_dict.val_data)
-            _, _, predictions = self.forward_decoder(data_dict.val_data, latents, data_dict.val_data_masks)
-            iou = calc_iou_per_class(predictions, data_dict.val_data_masks)
-            batch_msg = f"\nClass: {classes[batch]}, Episode: {train_stats.episode}, Val IOU: {iou}"
-            print(batch_msg[1:])
-            log_msg += batch_msg 
-            grid_title = f"pred_{train_stats.episode}_class_{classes[batch]}"
-            summary_write_masks(predictions, writer, grid_title)
-            grid_title = f"ground_truths_{train_stats.episode}_class_{classes[batch]}"
-            summary_write_masks(data_dict.val_data_masks, writer, grid_title, ground_truth=True)
-        log_filename = os.path.join(os.path.dirname(__file__), "data", "models",\
-                         f"experiment_{self.config.experiment.number}", "val_stats_log.txt")
-        log_msg += "\n"
-        log_data(log_msg, log_filename)
-
 
 def save_model(model, optimizer, config, stats):
     """
@@ -252,7 +237,9 @@ def save_model(model, optimizer, config, stats):
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
         'kl_loss': stats.kl_loss,
-        'total_val_loss': stats.total_val_loss
+        'total_val_loss': stats.total_val_loss,
+        'mean_iou_dict': stats.mean_iou_dict 
+        
     }
 
     experiment = config.experiment
@@ -311,7 +298,7 @@ def load_model(config):
         stats: stats for the last saved model
     """
     experiment = config.experiment
-    model_dir  = os.path.join(os.path.dirname(__file__), config.data_path,, "models", "experiment_{}"\
+    model_dir  = os.path.join(os.path.dirname(__file__), config.data_path, "models", "experiment_{}"\
                  .format(experiment.number))
     
     checkpoints = os.listdir(model_dir)
@@ -333,12 +320,14 @@ def load_model(config):
     mode = checkpoint['mode']
     total_val_loss = checkpoint['total_val_loss']
     kl_loss = checkpoint['kl_loss']
+    mean_iou_dict = checkpoint['mean_iou_dict']
 
     stats = {
         "mode": mode,
         "episode": episode,
         "kl_loss": kl_loss,
-        "total_val_loss": total_val_loss
+        "total_val_loss": total_val_loss,
+        "mean_iou_dict": mean_iou_dict
         }
 
     return leo, optimizer, stats
