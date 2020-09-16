@@ -17,7 +17,7 @@ import numpy as np
 from collections import OrderedDict, Counter
 from tqdm import tqdm
 from PIL import Image
-from model import mobilenet_v2_encoder, Decoder
+from pascal_models import mobilenet_v2_encoder, Decoder
 import time
 import itertools
 
@@ -349,7 +349,7 @@ def main(**train_kwargs):
     
     training_stats, iou_per_class_list, decoder, batch_imgs = train_model(encoder, decoder, epochs, freq, show_stats=False, **model_kwargs)
 
-    train_stats_save_path_root = os.path.join(os.path.dirname(__file__), "data", "emb_train_stats")
+    train_stats_save_path_root = os.path.join(os.path.dirname(__file__), "data", "pascal_voc", "emb_train_stats")
     os.makedirs(train_stats_save_path_root, exist_ok=True)
 
     test_saved_model(encoder, decoder, chosen_encoder, batch_imgs, img_dims)
