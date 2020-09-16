@@ -206,7 +206,6 @@ def plot_masks(mask_data, ground_truth=False):
     else:
         plt.imshow(np.mean(mask_data.cpu().detach().numpy())/2 + 0.5, cmap="gray")
 
-
 def summary_write_masks(batch_data, writer, grid_title, ground_truth=False):
     """
     Summary writer creates image grid for tensorboard
