@@ -33,7 +33,7 @@ def meta_classes_selector(config, dataset, generate_new, shuffle_classes=False):
         if os.path.exists(data_path) and not generate_new:
             meta_classes_splits = load_pickled_data(data_path)
         else:
-            classes = os.listdir(os.path.join(os.path.dirname(__file__), "data", f"{dataset}", "images"))
+            classes = os.listdir(os.path.join(os.path.dirname(__file__), config.data_path, f"{dataset}", "images"))
             if shuffle_classes:
                 random.shuffle(classes)
             meta_classes_splits = {"meta_train":classes[class_splits.meta_train[0]:class_splits.meta_train[1]],
@@ -103,7 +103,7 @@ def check_experiment(config):
         Bool
     """
     experiment = config.experiment
-    model_root = os.path.join(config.data_path, "models")
+    model_root = os.path.join(os.path.dirname(__file__), config.data_path, "models")
     model_dir = os.path.join(model_root, "experiment_{}" \
                              .format(experiment.number))
     def create_log():
