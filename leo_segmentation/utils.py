@@ -27,22 +27,26 @@ def meta_classes_selector(config, dataset, generate_new, shuffle_classes=False):
     Returns:
         meta_classes_splits(dict): contains classes for meta_train, meta_val and meta_test
     """
-    ratio = config.data_params.meta_train_val_test_ratio
+    class_splits = config.data_params.meta_class_splits
     if dataset in config.datasets:
         data_path = os.path.join(os.path.dirname(__file__), config.data_path, f"{dataset}", "meta_classes.pkl")
         if os.path.exists(data_path) and not generate_new:
             meta_classes_splits = load_pickled_data(data_path)
         else:
-            classes = os.listdir(os.path.join(os.path.dirname(__file__), "data", f"{dataset}", "train", "images"))
+            classes = os.listdir(os.path.join(os.path.dirname(__file__), "data", f"{dataset}", "images"))
             if shuffle_classes:
                 random.shuffle(classes)
-            meta_classes_splits = {"meta_train":classes[:ratio[0]],
-                                   "meta_val":classes[ratio[0]:ratio[0] + ratio[1]],
-                                   "meta_test":classes[ratio[0] + ratio[1]:ratio[0] + ratio[1] + ratio[2]]}
-            assert (len(meta_classes_splits["meta_train"]) + \
-                    len(meta_classes_splits["meta_val"]) + \
-                    len(meta_classes_splits["meta_test"]))  == len(classes), \
-                    "error exists in the ratios supplied"
+            meta_classes_splits = {"meta_train":classes[class_splits.meta_train[0]:class_splits.meta_train[1]],
+                                   "meta_val":classes[class_splits.meta_val[0]:class_splits.meta_val[1]],
+                                   "meta_test":classes[class_splits.meta_test[0]:class_splits.meta_test[1]]}
+
+            total_count = class_splits.meta_train[1] - class_splits.meta_train[0] + \
+                          class_splits.meta_val[1] - class_splits.meta_val[0] + \
+                          class_splits.meta_test[1] - class_splits.meta_test[0] 
+                          
+            assert len(set(meta_classes_splits["meta_train"] + \
+                        meta_classes_splits["meta_val"] + \
+                        meta_classes_splits["meta_test"]))  == total_count, "error exists in the ratios supplied"
             
             if os.path.exists(data_path):
                 os.remove(data_path)

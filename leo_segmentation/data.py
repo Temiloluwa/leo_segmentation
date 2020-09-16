@@ -22,10 +22,7 @@ class Datagenerator(Dataset):
     def __getitem__(self, idx):
         config = self._config.data_params
         dataset_root_path = os.path.join(os.path.dirname(__file__), self._config.data_path, self._dataset)
-        train_root_path = os.path.join(dataset_root_path, "train")
-        val_root_path = os.path.join(dataset_root_path, "val")
         classes = self.classes_dict[self._data_type]
-        
         num_classes = config.num_classes
         n_train_per_class = config.n_train_per_class[self._data_type]
         n_val_per_class = config.n_val_per_class[self._data_type]
@@ -57,28 +54,24 @@ class Datagenerator(Dataset):
                     paths_.append(os.path.join(sub_fn_path, fn))
                 return paths_
 
-            def data_path_assertions(data_path, img_or_mask, train_or_val):
+            def data_path_assertions(data_path, img_or_mask):
                 temp = data_path.split(os.sep)
-                _train_or_val, _img_or_mask, _selected_class = temp[-4], temp[-3], temp[-2]
-                assert _train_or_val == train_or_val, "wrong data split (train or val)"
+                _img_or_mask, _selected_class = temp[-3], temp[-2]
                 assert _img_or_mask == img_or_mask, "wrong data type (image or mask)"
                 assert _selected_class == selected_class, "wrong class (selected class)"
             
-            img_tr_path = os.path.join(train_root_path, "images")
-            img_datasets_train = datasets.DatasetFolder(root=img_tr_path, loader=loader(img_tr_path, selected_class), extensions=".npy")
-            img_vl_path = os.path.join(val_root_path, "images")
-            img_datasets_val = datasets.DatasetFolder(root=img_vl_path, loader=loader(img_vl_path, selected_class), extensions=".npy")
+            img_paths = os.path.join(dataset_root_path, "images")
+            img_datasets = datasets.DatasetFolder(root=img_paths, loader=loader(img_paths, selected_class), extensions=".npy")
             
-            img_paths_train = [i for i in img_datasets_train.loader if selected_class in i]
-            random.shuffle(img_paths_train)
-            img_paths_train = list(np.random.choice(img_paths_train, n_train_per_class, replace=False))
-            data_path_assertions(img_paths_train[-1], "images", "train")
-
-            img_paths_val = [i for i in img_datasets_val.loader if selected_class in i]
-            random.shuffle(img_paths_val)
-            img_paths_val = list(np.random.choice(img_paths_val, n_val_per_class, replace=False))
-            data_path_assertions(img_paths_val[-1], "images", "val")
-
+            img_paths = [i for i in img_datasets.loader if selected_class in i]
+            random.shuffle(img_paths)
+            img_paths  = list(np.random.choice(img_paths , n_train_per_class + n_val_per_class, replace=False))
+            
+            for img_path in img_paths:
+                data_path_assertions(img_path, "images")
+            
+            img_paths_train = img_paths[:n_train_per_class]
+            img_paths_val = img_paths[n_train_per_class:]
             mask_paths_train = [i.replace("images", "masks") for i in img_paths_train]
             mask_paths_val = [i.replace("images", "masks") for i in img_paths_val]
             
