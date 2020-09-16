@@ -31,9 +31,9 @@ except RuntimeError as e:
 def test_saved_model(encoder, decoder, chosen_encoder, input_imgs, img_dims):
     oracle = forward_model(encoder, decoder, input_imgs)
     retrieved_encoder = chosen_encoder(img_dims)
-    retrieved_encoder.load_weights("./data/embedding_ckpt/encoder_weights")
+    retrieved_encoder.load_weights("./data/pascal_voc/embedding_ckpt/encoder_weights")
     retrieved_decoder = Decoder()
-    retrieved_decoder.load_weights("./data//embedding_ckpt/decoder_weights")
+    retrieved_decoder.load_weights("./data/pascal_voc/embedding_ckpt/decoder_weights")
     retrieved_outputs = forward_model(retrieved_encoder, retrieved_decoder, input_imgs)
     test_types = ["final output", "embeddings"]
     for _test, _oracle, _retrieved_output in zip(test_types, oracle, retrieved_outputs):
@@ -279,8 +279,8 @@ def train_model(encoder, decoder, epochs, freq, show_stats=False,**model_kwargs)
     
     total_training_time = sum([i["epoch time"] for i in training_stats])
     print(f"Total model training time {total_training_time:.2f} minutes")
-    encoder.save_weights("./data/embedding_ckpt/encoder_weights")
-    decoder.save_weights("./data/embedding_ckpt/decoder_weights")
+    encoder.save_weights("./data/pascal_voc/embedding_ckpt/encoder_weights")
+    decoder.save_weights("./data/pascal_voc/embedding_ckpt/decoder_weights")
     return training_stats, iou_per_class_list, decoder, batch_imgs
 
 def main(**train_kwargs):
@@ -300,7 +300,7 @@ def main(**train_kwargs):
     """
    
     num_channels, img_height, img_width =  train_kwargs.get("image_shape", (3, 384, 512))
-    epochs, freq, bs = train_kwargs.get("epochs", 30), train_kwargs.get("freq", 1), train_kwargs.get("bs", 1)
+    epochs, freq, bs = train_kwargs.get("epochs", 13), train_kwargs.get("freq", 1), train_kwargs.get("bs", 1)
     experiment_number = train_kwargs.get("experiment_number", 2)
     generate_embeddings = train_kwargs.get("generate_embeddings", True)
     choose_encoder = train_kwargs.get("encoder", "mobilenet_v2")
