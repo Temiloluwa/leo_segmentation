@@ -1,11 +1,9 @@
-# Architecture definition
-# Computational graph creation
 import torch, os
+import numpy as np
 from torch import nn
 from torch.distributions import Normal
-import numpy as np
 from torch.utils.tensorboard import SummaryWriter
-from utils import display_data_shape, get_named_dict, one_hot_target,\
+from .utils import display_data_shape, get_named_dict, one_hot_target,\
     softmax, sparse_crossentropy, calc_iou_per_class, log_data, load_config,\
     summary_write_masks
     

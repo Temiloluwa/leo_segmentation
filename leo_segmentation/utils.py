@@ -6,7 +6,7 @@ import torchvision
 from matplotlib import pyplot as plt
 from easydict import EasyDict as edict
 
-def load_config(config_path:str = "data/config.json"):
+def load_config(config_path:str = "leo_segmentation/data/config.json"):
     """Loads config file"""
     with open(config_path, "r") as f:
         config = json.loads(f.read())

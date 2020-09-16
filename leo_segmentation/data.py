@@ -1,5 +1,4 @@
-#contains data preprocessing functions
-from utils import numpy_to_tensor, meta_classes_selector, load_npy
+from .utils import numpy_to_tensor, meta_classes_selector, load_npy
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, utils, datasets
 import collections, random
