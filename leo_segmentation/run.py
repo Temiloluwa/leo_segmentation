@@ -13,13 +13,14 @@ import torch
 import torch.optim
 import gc
 
-#parser = argparse.ArgumentParser(description='Specify train or inference dataset')
-#parser.add_argument("-d", "--dataset", type=str, nargs=1, default="pascal_voc")
-#args = parser.parse_args()
-#dataset = args.dataset
-
-dataset = "pascal_voc"
-
+try:
+    shell = get_ipython().__class__.__name__
+    dataset = "pascal_voc"
+except NameError:
+    parser = argparse.ArgumentParser(description='Specify train or inference dataset')
+    parser.add_argument("-d", "--dataset", type=str, nargs=1, default="pascal_voc")
+    args = parser.parse_args()
+    dataset = args.dataset
 
 def train_model(config):
     """Trains Model"""
@@ -87,7 +88,7 @@ def predict_model(config):
 def main():
     config = load_config()
     if config.train:
-        train_model(config, writer)
+        train_model(config)
     else:
         predict_model(config)
     
