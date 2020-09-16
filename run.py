@@ -1,13 +1,12 @@
-from .data import Datagenerator, TrainingStats
-from .model import LEO, load_model, save_model
-from .utils import load_config, check_experiment, get_named_dict
+from leo_segmentation.data import Datagenerator, TrainingStats
+from leo_segmentation.model import LEO, load_model, save_model
+from leo_segmentation.utils import load_config, check_experiment, get_named_dict
 from easydict import EasyDict as edict
 from torch.utils.tensorboard import SummaryWriter
 from IPython import get_ipython
 import numpy as np
 import tensorflow as tf
-import os
-import argparse
+import os, argparse
 
 try:
     shell = get_ipython().__class__.__name__

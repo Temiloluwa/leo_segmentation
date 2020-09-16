@@ -155,7 +155,7 @@ class TrainingStats():
             "kl_loss": self.kl_loss,
             "total_val_loss": self.total_val_loss
         })
-        self.log_model_stats_to_file()
+        #self.log_model_stats_to_file()
 
     def update_inner_loop_stats(self, **kwargs):
         pass
@@ -173,7 +173,7 @@ class TrainingStats():
         pass
     
     def log_model_stats_to_file(self):
-        model_root = os.path.join(self.config.data_path, "models")
+        model_root = os.path.join(os.path.dirname(__file__), self.config.data_path, "models")
         model_dir  = os.path.join(model_root, "experiment_{}"\
                     .format(self.config.experiment.number))
 

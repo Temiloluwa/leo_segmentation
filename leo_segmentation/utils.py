@@ -6,7 +6,7 @@ import torchvision
 from matplotlib import pyplot as plt
 from easydict import EasyDict as edict
 
-def load_config(config_path:str = "data/config.json"):
+def load_config(config_path:str = "leo_segmentation/data/config.json"):
     """Loads config file"""
     with open(config_path, "r") as f:
         config = json.loads(f.read())
@@ -136,7 +136,7 @@ def get_named_dict(metadata, batch):
 def display_data_shape(metadata):
     """Displays data shape"""
     if type(metadata) == tuple:
-        tr_imgs, tr_masks, val_imgs, val_masks, _, _ = metadata
+        tr_imgs, tr_masks, val_imgs, val_masks, _, _, _ = metadata
         print(f"num tasks: {len(tr_imgs)}")
     else:
         tr_imgs, tr_masks, val_imgs, val_masks = metadata.tr_imgs,\

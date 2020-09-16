@@ -1,4 +1,4 @@
-import torch, os, numpy as np
+import os, torch, numpy as np
 import tensorflow as tf
 from .utils import display_data_shape, get_named_dict, calc_iou_per_class,\
     log_data, load_config, summary_write_masks
@@ -159,12 +159,12 @@ class LEO:
         print("\n**Train**")
         for batch in range(num_tasks):   
             data_dict = get_named_dict(metadata, batch)
-            cal_iou(data_dict.tr_imgs, data_dict.tr_masks, metadata[-1], batch)
+            cal_iou(data_dict.tr_imgs, data_dict.tr_masks, metadata[4], batch)
         
         print("**Validation**")
         for batch in range(num_tasks):
             data_dict = get_named_dict(metadata, batch)
-            cal_iou(data_dict.val_imgs, data_dict.val_masks, metadata[-1], batch)
+            cal_iou(data_dict.val_imgs, data_dict.val_masks, metadata[4], batch)
         
         #log_filename = os.path.join(os.path.dirname(__file__), "data", "models",\
         #                 f"experiment_{self.config.experiment.number}", "val_stats_log.txt")

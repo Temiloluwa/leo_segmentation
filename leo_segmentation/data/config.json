@@ -14,7 +14,7 @@
         "n_val_per_class":{"meta_train":5, "meta_val":"rest", "meta_test":"rest"},
         "num_tasks":{"meta_train":5, "meta_val":5, "meta_test":5}
     },
-    "experiment":{"number":14, "episode":1, "description":"fixed_some_bugs", "prompt_deletion":false},
+    "experiment":{"number":1, "episode":1, "description":"testing", "prompt_deletion":false},
     "hyperparameters":{
         "outer_loop_lr":1e-4,
         "inner_loop_lr":1e-4,

@@ -1,3 +1,3 @@
-from . import model, data, utils, config
+from . import model, data, utils
 
-__all__ = ["model", "data", "utils", "config"]
+__all__ = ["model", "data", "utils"]
