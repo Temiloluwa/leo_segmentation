@@ -11,13 +11,14 @@ from torchvision import transforms, datasets
 from torch.utils.data import Dataset, DataLoader
 import matplotlib.pyplot as plt
 import pandas as pd
-import picklegit 
+import pickle
 import os
 import numpy as np
 from collections import OrderedDict, Counter
 from tqdm import tqdm
 from PIL import Image
 from pascal_models import mobilenet_v2_encoder, Decoder
+from utils import load_pickled_data, save_pickled_data, save_npy, rgb2gray
 import time
 import itertools
 
@@ -26,26 +27,6 @@ try:
     tf.config.experimental.set_memory_growth(physical_devices[0], True)
 except RuntimeError as e:
     print(e)
-
-def load_pickled_data(data_path):
-    """Reads a pickle file"""
-    with open(data_path, "rb") as f:
-        data = pickle.load(f)
-    return data
-
-def save_pickled_data(data, data_path):
-    """Saves a pickle file"""
-    with open(data_path, "wb") as f:
-        data = pickle.dump(data,f)
-    return data
-
-def save_npy(np_array, filename):
-    with open(f"{filename[:-4]}.npy", "wb") as f:
-        return np.save(f, np_array)
-
-#https://stackoverflow.com/questions/12201577/how-can-i-convert-an-rgb-image-into-grayscale-in-python
-def rgb2gray(rgb):
-    return np.dot(rgb[...,:3], [0.2989, 0.5870, 0.1140])
 
 def test_saved_model(encoder, decoder, chosen_encoder, input_imgs, img_dims):
     oracle = forward_model(encoder, decoder, input_imgs)
@@ -320,7 +301,7 @@ def main(**train_kwargs):
    
     num_channels, img_height, img_width =  train_kwargs.get("image_shape", (3, 384, 512))
     epochs, freq, bs = train_kwargs.get("epochs", 30), train_kwargs.get("freq", 1), train_kwargs.get("bs", 1)
-    experiment_number = train_kwargs.get("experiment_number", 0)
+    experiment_number = train_kwargs.get("experiment_number", 2)
     generate_embeddings = train_kwargs.get("generate_embeddings", True)
     choose_encoder = train_kwargs.get("encoder", "mobilenet_v2")
 

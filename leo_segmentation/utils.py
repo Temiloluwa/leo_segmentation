@@ -3,6 +3,7 @@ import torch
 import json
 import pickle
 import os
+import numpy as np
 from easydict import EasyDict as edict
 
 def load_config(config_path:str="data/config.json"):
@@ -10,38 +11,22 @@ def load_config(config_path:str="data/config.json"):
         config = json.loads(f.read())
     return edict(config)
 
-def load_data(config:dict, dataset:str, data_type:str):
-    """
-    Reads a pickle file containing few-shot dataset
-    Args:
-        config(dict) - config dictionary
-        dataset(str) - name of dataset 
-        data_type(str) - train, val, or test
-    
-    Returns:
-        data_dict(dict): contains the following keys and values
-        - embeddings - stores image/image embeddings
-        - filenames -  filenames of the format <classname>_<imagename>.jpg
-        - masks - segmentation masks for image
-    """
-    root_data_path = config.datasets_path
-    if data_type not in ["meta_train", "meta_val", "meta_test"]:
-        raise ValueError("Make sure dataset files end with train, val or test")
-
-    if dataset in config.datasets:
-        data_path = os.path.join(root_data_path, dataset, f"{dataset}_{data_type}.pkl")
-        data_dict = load_pickled_data(data_path)
-    else:
-        raise ValueError("Dataset does not exist")
-    assert(list(data_dict.keys()) == ['embeddings', 'filenames', 'masks'])
-    assert(len(data_dict["embeddings"]) == len(data_dict["filenames"]) == len(data_dict["masks"]))
-    return data_dict
 
 def load_pickled_data(data_path):
     """Reads a pickle file"""
     with open(data_path, "rb") as f:
         data = pickle.load(f)
     return data
+
+def save_pickled_data(data, data_path):
+    """Saves a pickle file"""
+    with open(data_path, "wb") as f:
+        data = pickle.dump(data,f)
+    return data
+
+def save_npy(np_array, filename):
+    with open(f"{filename[:-4]}.npy", "wb") as f:
+        return np.save(f, np_array)
 
 def numpy_to_tensor(np_data):
     """Converts numpy array to pytorch tensor"""
@@ -56,3 +41,8 @@ def tensor_to_numpy(pytensor):
         return pytensor.cpu().detach().numpy()
     else:
         return pytensor.numpy()
+
+#https://stackoverflow.com/questions/12201577/how-can-i-convert-an-rgb-image-into-grayscale-in-python
+def rgb2gray(rgb):
+    return np.dot(rgb[...,:3], [0.2989, 0.5870, 0.1140])
+
