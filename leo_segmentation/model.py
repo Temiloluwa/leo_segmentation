@@ -1,6 +1,6 @@
 import torch, os, numpy as np
 import tensorflow as tf
-from utils import display_data_shape, get_named_dict, calc_iou_per_class,\
+from .utils import display_data_shape, get_named_dict, calc_iou_per_class,\
     log_data, load_config, summary_write_masks
 
 def mobilenet_v2_encoder(img_dims):

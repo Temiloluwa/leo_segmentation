@@ -1,5 +1,5 @@
-from data import Datagenerator, TrainingStats
-from model import LEO, load_model, save_model
+from .data import Datagenerator, TrainingStats
+from .model import LEO, load_model, save_model
 from .utils import load_config, check_experiment, get_named_dict
 from easydict import EasyDict as edict
 from torch.utils.tensorboard import SummaryWriter

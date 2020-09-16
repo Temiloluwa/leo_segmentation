@@ -1,4 +1,3 @@
-from utils import load_config
-from run import main
+from . import model, data, utils, config
 
 __all__ = ["model", "data", "utils", "config"]

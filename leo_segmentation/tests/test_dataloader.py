@@ -1,6 +1,6 @@
 import unittest
-from data import Datagenerator
-from utils import load_config
+from ..data import Datagenerator
+from ..utils import load_config
 from collections import Counter
 
 class TestDataLoader(unittest.TestCase):

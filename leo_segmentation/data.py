@@ -1,5 +1,5 @@
 #contains data preprocessing functions
-from utils import meta_classes_selector
+from .utils import meta_classes_selector
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, utils, datasets
 from PIL import Image
