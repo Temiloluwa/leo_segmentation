@@ -56,17 +56,3 @@ def tensor_to_numpy(pytensor):
         return pytensor.cpu().detach().numpy()
     else:
         return pytensor.numpy()
-
-def load_model(model_path):
-    """
-    Returns a trained model
-
-    Parameters:
-    model_path (str): path containing stored model
-
-    Returns:
-    model(pkl): trained model
-
-    """
-    print("This return a trained model")
-    return 
