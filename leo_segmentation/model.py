@@ -218,13 +218,14 @@ class LEO(nn.Module):
             iou = calc_iou_per_class(predictions, data_dict.val_data_masks)
             batch_msg = f"\nClass: {classes[batch]}, Episode: {train_stats.episode}, Val IOU: {iou}"
             print(batch_msg[1:])
-            log_msg += batch_msg
+            log_msg += batch_msg 
             grid_title = f"pred_{train_stats.episode}_class_{classes[batch]}"
             summary_write_masks(predictions, writer, grid_title)
             grid_title = f"ground_truths_{train_stats.episode}_class_{classes[batch]}"
             summary_write_masks(data_dict.val_data_masks, writer, grid_title, ground_truth=True)
         log_filename = os.path.join(os.path.dirname(__file__), "data", "models",\
                          f"experiment_{self.config.experiment.number}", "val_stats_log.txt")
+        log_msg += "\n"
         log_data(log_msg, log_filename)
 
 
@@ -255,7 +256,7 @@ def save_model(model, optimizer, config, stats):
     }
 
     experiment = config.experiment
-    model_root = os.path.join(config.data_path, "models")
+    model_root = os.path.join(os.path.dirname(__file__), config.data_path, "models")
     model_dir = os.path.join(model_root, "experiment_{}" \
                              .format(experiment.number))
 
@@ -310,7 +311,7 @@ def load_model(config):
         stats: stats for the last saved model
     """
     experiment = config.experiment
-    model_dir  = os.path.join(config.data_path, "models", "experiment_{}"\
+    model_dir  = os.path.join(os.path.dirname(__file__), config.data_path,, "models", "experiment_{}"\
                  .format(experiment.number))
     
     checkpoints = os.listdir(model_dir)
