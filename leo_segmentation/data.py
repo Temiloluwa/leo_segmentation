@@ -65,12 +65,8 @@ class Datagenerator(Dataset):
             img_paths = [i for i in img_datasets.loader if selected_class in i]
             random.shuffle(img_paths)
 
-            if type(n_val_per_class) == str:
-                path_to_class = os.path.join(dataset_root_path, "images", f"{selected_class}")
-                n_val_per_class = len(os.listdir(path_to_class)) - n_train_per_class
-            
             if self._data_type == "meta_train":
-                img_paths  = list(np.random.choice(img_paths , n_train_per_class + n_val_per_class, replace=False))
+                img_paths  = list(np.random.choice(img_paths , n_train_per_class + n_val_per_class, replace=False))            
             
             for img_path in img_paths:
                 data_path_assertions(img_path, "images")
@@ -84,17 +80,29 @@ class Datagenerator(Dataset):
             tr_masks_paths.extend(mask_paths_train)
             val_img_paths.extend(img_paths_val)
             val_masks_paths.extend(mask_paths_val)
-            
+    
             tr_imgs.append(np.array([load_npy(i) for i in tr_img_paths]))
             tr_masks.append(np.array([load_npy(i) for i in tr_masks_paths]))
-            val_imgs.append(np.array([load_npy(i) for i in val_img_paths]))
-            val_masks.append(np.array([load_npy(i) for i in val_masks_paths]))
+            if self._data_type in ["meta_val", "meta_test"]: 
+                val_imgs.append(val_img_paths)
+                val_masks.append(val_masks_paths)
+            else:
+                val_imgs.append(np.array([load_npy(i) for i in val_img_paths]))
+                val_masks.append(np.array([load_npy(i) for i in val_masks_paths]))
+
 
         assert len(classes_selected) == len(set(classes_selected)), "classes are not unique"
+        
+        if self._data_type == "meta_train": 
+            tr_data, tr_data_masks, val_data, val_masks = numpy_to_tensor(np.array(tr_imgs)),\
+                                                        numpy_to_tensor(np.array(tr_masks)),\
+                                                        numpy_to_tensor(np.array(val_imgs)), \
+                                                        numpy_to_tensor(np.array(val_masks))
+            return tr_data, tr_data_masks, val_data, val_masks, classes_selected
+        else:
+            tr_data, tr_data_masks = numpy_to_tensor(np.array(tr_imgs)), numpy_to_tensor(np.array(tr_masks))
+            return tr_data, tr_data_masks, val_imgs, val_masks, classes_selected
 
-        return numpy_to_tensor(np.squeeze(np.array(tr_imgs))), numpy_to_tensor(np.squeeze(np.array(tr_masks))),\
-               numpy_to_tensor(np.squeeze(np.array(val_imgs))), numpy_to_tensor(np.squeeze(np.array(val_masks))),\
-               classes_selected
 
     def get_batch_data(self):
         return self.__getitem__(0)
@@ -107,13 +115,14 @@ class TrainingStats():
     
     def set_episode(self, episode):
         self.episode = episode
+    
+    def set_mode(self, mode):
+        self.mode = mode
 
     def set_batch(self, batch):
         self.batch = batch
 
     def update_stats(self, **kwargs):
-        
-        self.mode = kwargs["mode"]
         self.kl_loss = kwargs["kl_loss"]
         self.total_val_loss = kwargs["total_val_loss"]
         self.mean_iou_dict =  kwargs["mean_iou_dict"]
@@ -162,6 +171,6 @@ class TrainingStats():
     def disp_stats(self):
         mean_iou_string = print_to_string_io(self.mean_iou_dict, pretty_print=True)
         msg = f"\nmode:{self.mode}, episode:{self.episode:03d}, kl_loss:{self.kl_loss:2f}, " 
-        msg += f"total_val_loss:{self.total_val_loss:2f} \nval_mean_iou:{mean_iou_string}"
+        msg += f"total_{self.mode}_loss:{self.total_val_loss:2f} \nval_mean_iou:{mean_iou_string}"
         print(msg)
 

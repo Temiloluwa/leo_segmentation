@@ -31,7 +31,7 @@ def load_model_and_params(config):
 
 def train_model(config):
     """Trains Model"""
-    writer = SummaryWriter(os.path.join(config.data_path, "models", str(config.experiment.number)))
+    #writer = SummaryWriter(os.path.join(config.data_path, "models", str(config.experiment.number)))
     device = torch.device("cuda:0" if torch.cuda.is_available() and config.use_gpu else "cpu")
     if check_experiment(config):
         leo, optimizer, train_stats = load_model_and_params()
@@ -42,12 +42,13 @@ def train_model(config):
         optimizer = torch.optim.Adam(leo.parameters(), lr=config.hyperparameters.outer_loop_lr)
 
     episodes =  config.hyperparameters.episodes
-    
+
     for episode in range(episodes_completed+1, episodes+1):
         train_stats.set_episode(episode)
+        train_stats.set_mode("meta_train")
         dataloader = Datagenerator(config, dataset, data_type="meta_train")
         metadata = dataloader.get_batch_data()
-        metatrain_loss, train_stats = leo.compute_loss(metadata, train_stats)
+        metatrain_loss, train_stats = leo.compute_loss(metadata, train_stats, mode="meta_train")
         optimizer.zero_grad()
         metatrain_loss.backward()
         optimizer.step()
@@ -58,28 +59,28 @@ def train_model(config):
             #writer.close()
         
         dataloader = Datagenerator(config, dataset, data_type="meta_val")
+        train_stats.set_mode("meta_val")
         metadata = dataloader.get_batch_data()
-        class_in_metadata = metadata[-1]
-        _, train_stats = leo.compute_loss(metadata, train_stats)
+        _, train_stats = leo.compute_loss(metadata, train_stats, mode="meta_val")
         train_stats.disp_stats()
 
-        del metadata
-        gc.collect()
-        torch.cuda.ipc_collect()
-        torch.cuda.empty_cache()
+        if episode != episodes:
+            del metadata
+            gc.collect()
+            torch.cuda.ipc_collect()
+            torch.cuda.empty_cache()
 
-        leo, _ , train_stats = model_and_params
+        model_and_params = leo, _ , train_stats
         predict_model(config, model_and_params)
 
-        return leo, metadata, class_in_metadata
+        return leo, metadata
         
-
 def predict_model(config, model_and_params):
     leo, _ , train_stats = model_and_params
     dataloader = Datagenerator(config, dataset, data_type="meta_test")
+    train_stats.set_mode("meta_test")
     metadata = dataloader.get_batch_data()
-    class_in_metadata = metadata[-1]
-    _, train_stats = leo.compute_loss(metadata, train_stats)
+    _, train_stats = leo.compute_loss(metadata, train_stats, mode="meta_test")
     train_stats.disp_stats()
 
 def main():

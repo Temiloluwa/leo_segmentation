@@ -148,9 +148,9 @@ def prepare_inputs(data):
     Returns:
         data (tensor): (num_examples_per_class, channels, height, width)
     """
-  
-    if len(data.shape) == 4:
-        data = data.permute((0, 3, 1, 2))
+    if type(data) != list:
+        if len(data.shape) == 4:
+            data = data.permute((0, 3, 1, 2))
     return data
 
 
@@ -164,17 +164,18 @@ def get_named_dict(metadata, batch):
     return edict(data_dict)
 
 
-def display_data_shape(metadata):
+def display_data_shape(metadata, mode):
     """Displays data shape"""
-    if type(metadata) == tuple:
-        tr_data, tr_data_masks, val_data, val_masks, _ = metadata
-        print(f"num tasks: {len(tr_data)}")
-    else:
-        tr_data, tr_data_masks, val_data, val_masks = metadata.tr_data,\
-            metadata.tr_data_masks, metadata.val_data, metadata.val_data_masks 
-   
-    print("tr_data shape: {},tr_data_masks shape: {}, val_data shape: {},val_masks shape: {}". \
-            format(tr_data.size(), tr_data_masks.size(), val_data.size(), val_masks.size()))
+    if mode == "meta_train":
+        if type(metadata) == tuple:
+            tr_data, tr_data_masks, val_data, val_masks, _ = metadata
+            print(f"num tasks: {len(tr_data)}")
+        else:
+            tr_data, tr_data_masks, val_data, val_masks = metadata.tr_data,\
+                metadata.tr_data_masks, metadata.val_data, metadata.val_data_masks 
+    
+        print("tr_data shape: {},tr_data_masks shape: {}, val_data shape: {},val_masks shape: {}". \
+                format(tr_data.size(), tr_data_masks.size(), val_data.size(), val_masks.size()))
     
 
 def log_data(msg, log_filename):

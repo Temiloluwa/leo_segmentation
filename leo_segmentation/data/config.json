@@ -11,7 +11,7 @@
         "img_dims":{"channels":3, "height":384, "width": 512},
         "meta_class_splits":{"meta_train":[0, 10], "meta_val":[10, 15], "meta_test":[15,20]},
         "n_train_per_class":{"meta_train":2, "meta_val":2, "meta_test":2},
-        "n_val_per_class":{"meta_train":5, "meta_val":"rest", "meta_test":"rest"},
+        "n_val_per_class":{"meta_train":5, "meta_val":20, "meta_test":20},
         "num_tasks":{"meta_train":7, "meta_val":5, "meta_test":5}
     },
     "experiment":{"number":3, "episode":1, "description":"using_new_embeddings", "prompt_deletion":false},

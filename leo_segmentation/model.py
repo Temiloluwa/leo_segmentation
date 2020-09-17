@@ -1,11 +1,12 @@
 import torch, os
 import numpy as np
 from torch import nn
+from tqdm import tqdm
 from torch.distributions import Normal
 from torch.utils.tensorboard import SummaryWriter
 from .utils import display_data_shape, get_named_dict, one_hot_target,\
     softmax, sparse_crossentropy, calc_iou_per_class, log_data, load_config,\
-    summary_write_masks
+    summary_write_masks, load_npy, numpy_to_tensor, tensor_to_numpy, prepare_inputs
     
 class Flatten(nn.Module):
   def __init__(self):
@@ -137,7 +138,7 @@ class LEO(nn.Module):
             tr_loss, segmentation_weights, _ = self.forward_decoder(inputs, latents, target)
         return tr_loss, segmentation_weights
 
-    def finetuning_inner_loop(self, data, tr_loss, seg_weights, evaluate=False):
+    def finetuning_inner_loop(self, data, tr_loss, seg_weights, mode):
         """
         This function does "segmentation_weights optimization"
         Args:
@@ -153,9 +154,23 @@ class LEO(nn.Module):
             with torch.no_grad():
                 seg_weights -= finetuning_lr * seg_weights_grad
             tr_loss, _ = self.calculate_inner_loss(data.tr_data, data.tr_data_masks, seg_weights)
-        val_loss, predictions = self.calculate_inner_loss(data.val_data, data.val_data_masks, seg_weights)
-        if evaluate:
+        if mode == "meta_train":
+            val_loss, predictions = self.calculate_inner_loss(data.val_data, data.val_data_masks, seg_weights)
             mean_iou = calc_iou_per_class(predictions, data.val_data_masks)
+        else:
+            mean_ious = []
+            val_losses = []
+            val_img_paths = data.val_data
+            val_mask_paths = data.val_data_masks
+            for _img_path, _mask_path in tqdm(zip(val_img_paths, val_mask_paths)):
+                input_embedding = prepare_inputs(torch.unsqueeze(numpy_to_tensor(load_npy(_img_path)), 0))
+                input_mask = prepare_inputs(torch.unsqueeze(numpy_to_tensor(load_npy(_mask_path)), 0))
+                val_loss, prediction = self.calculate_inner_loss(input_embedding, input_mask, seg_weights)
+                mean_iou = calc_iou_per_class(prediction, input_mask)
+                mean_ious.append(mean_iou)
+                val_losses.append(tensor_to_numpy(val_loss))
+            mean_iou = np.mean(mean_ious)
+            val_loss = np.mean(val_losses)
         return val_loss, mean_iou
 
     def forward(self, tr_data, tr_data_masks, val_data, val_masks):
@@ -168,7 +183,7 @@ class LEO(nn.Module):
         return inner_loss + kl_loss
 
 
-    def compute_loss(self, metadata, train_stats, mode="meta_train"):
+    def compute_loss(self, metadata, train_stats, mode):
         """
         Computes the  outer loop loss
 
@@ -183,7 +198,7 @@ class LEO(nn.Module):
         """
         num_tasks = len(metadata[0])
         if train_stats.episode % self.config.display_stats_interval == 1:
-            display_data_shape(metadata)
+            display_data_shape(metadata, mode)
         classes = metadata[-1]
         total_val_loss = []
         kl_losses = []
@@ -195,8 +210,8 @@ class LEO(nn.Module):
             tr_loss, adapted_seg_weights = self.leo_inner_loop(\
                             data_dict.tr_data, latents, data_dict.tr_data_masks)
 
-            val_loss, mean_iou = self.finetuning_inner_loop(data_dict, tr_loss, \
-                                                            adapted_seg_weights, evaluate=True)
+            val_loss, mean_iou = self.finetuning_inner_loop(data_dict, tr_loss,\
+                                                            adapted_seg_weights, mode)
             mean_iou_dict[classes[batch]] = mean_iou
             total_val_loss.append(val_loss)
             kl_loss = kl_loss * self.config.hyperparameters.kl_weight
