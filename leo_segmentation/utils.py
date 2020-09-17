@@ -96,6 +96,14 @@ def tensor_to_numpy(pytensor):
     else:
         return pytensor.detach().numpy()
 
+def list_to_tensor(_list):
+    """Converts list of paths to pytorch tensor"""
+    tensor = numpy_to_tensor(load_npy(_list))
+    if type(_list[0]) == list:
+        return prepare_inputs(tensor)
+    else:
+        return prepare_inputs(torch.unsqueeze(tensor, 0))
+
 def check_experiment(config):
     """
     Checks if the experiment is new or not
@@ -115,10 +123,10 @@ def check_experiment(config):
         msg = f"*********************Experiment {experiment.number}********************\n"
         msg += f"Description: {experiment.description}"
         log_filename = os.path.join(model_dir, "train_log.txt")
-        log_data(msg, log_filename)
+        log_data(msg, log_filename, overwrite=True)
         log_filename = os.path.join(model_dir, "val_log.txt")
         msg = "******************* Val stats *************\n"
-        log_data(msg, log_filename)
+        log_data(msg, log_filename, overwrite=True)
         return 
 
     if not os.path.exists(model_root):
@@ -178,12 +186,9 @@ def display_data_shape(metadata, mode):
                 format(tr_data.size(), tr_data_masks.size(), val_data.size(), val_masks.size()))
     
 
-def log_data(msg, log_filename):
+def log_data(msg, log_filename, overwrite=False):
     """Log data to a file"""
-    if os.path.exists(log_filename):
-        mode_ = "a"
-    else:
-        mode_ = "w"
+    mode_ = "w" if not os.path.exists(log_filename) or overwrite else "a"
     with open(log_filename, mode_) as f:
         f.write(msg)
 
@@ -263,4 +268,6 @@ def print_to_string_io(variable_to_print, pretty_print=True):
     sys.stdout = previous_stdout
     string_value = string_buffer.getvalue()
     return string_value
+
+
 

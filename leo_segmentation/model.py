@@ -6,7 +6,7 @@ from torch.distributions import Normal
 from torch.utils.tensorboard import SummaryWriter
 from .utils import display_data_shape, get_named_dict, one_hot_target,\
     softmax, sparse_crossentropy, calc_iou_per_class, log_data, load_config,\
-    summary_write_masks, load_npy, numpy_to_tensor, tensor_to_numpy, prepare_inputs
+    summary_write_masks, load_npy, numpy_to_tensor, tensor_to_numpy, list_to_tensor
     
 class Flatten(nn.Module):
   def __init__(self):
@@ -128,7 +128,6 @@ class LEO(nn.Module):
             segmentation_weights : shape(num_classes, num_eg_per_class, channels, H, W)
         """
         inner_lr = self.config.hyperparameters.inner_loop_lr
-        initial_latents = latents.clone()
         tr_loss, _ , _ = self.forward_decoder(inputs, latents, target)
         
         for _ in range(self.config.hyperparameters.num_adaptation_steps):
@@ -138,7 +137,7 @@ class LEO(nn.Module):
             tr_loss, segmentation_weights, _ = self.forward_decoder(inputs, latents, target)
         return tr_loss, segmentation_weights
 
-    def finetuning_inner_loop(self, data, tr_loss, seg_weights, mode):
+    def finetuning_inner_loop(self, data, tr_loss, seg_weights, mode, inference=False):
         """
         This function does "segmentation_weights optimization"
         Args:
@@ -158,30 +157,22 @@ class LEO(nn.Module):
             val_loss, predictions = self.calculate_inner_loss(data.val_data, data.val_data_masks, seg_weights)
             mean_iou = calc_iou_per_class(predictions, data.val_data_masks)
         else:
+            if inference:
+                return _, _, seg_weights
             mean_ious = []
             val_losses = []
             val_img_paths = data.val_data
             val_mask_paths = data.val_data_masks
             for _img_path, _mask_path in tqdm(zip(val_img_paths, val_mask_paths)):
-                input_embedding = prepare_inputs(torch.unsqueeze(numpy_to_tensor(load_npy(_img_path)), 0))
-                input_mask = prepare_inputs(torch.unsqueeze(numpy_to_tensor(load_npy(_mask_path)), 0))
+                input_embedding = list_to_tensor(_img_path)
+                input_mask = list_to_tensor(_mask_path)
                 val_loss, prediction = self.calculate_inner_loss(input_embedding, input_mask, seg_weights)
                 mean_iou = calc_iou_per_class(prediction, input_mask)
                 mean_ious.append(mean_iou)
                 val_losses.append(tensor_to_numpy(val_loss))
             mean_iou = np.mean(mean_ious)
             val_loss = np.mean(val_losses)
-        return val_loss, mean_iou
-
-    def forward(self, tr_data, tr_data_masks, val_data, val_masks):
-        metadata = (tr_data, tr_data_masks, val_data, val_masks, "") 
-        data_dict = get_named_dict(metadata, 0)
-        latents, kl_loss = self.forward_encoder(data_dict.tr_data)
-        inner_loss, _, _ = self.forward_decoder(data_dict.tr_data, latents, data_dict.tr_data_masks)
-        #val_loss = self.finetuning_inner_loop(data_dict, tr_loss, adapted_seg_weights)
-        #kl_loss = kl_loss * self.config.hyperparameters.kl_weight
-        return inner_loss + kl_loss
-
+        return val_loss, mean_iou, seg_weights
 
     def compute_loss(self, metadata, train_stats, mode):
         """
@@ -210,7 +201,7 @@ class LEO(nn.Module):
             tr_loss, adapted_seg_weights = self.leo_inner_loop(\
                             data_dict.tr_data, latents, data_dict.tr_data_masks)
 
-            val_loss, mean_iou = self.finetuning_inner_loop(data_dict, tr_loss,\
+            val_loss, mean_iou, seg_weights = self.finetuning_inner_loop(data_dict, tr_loss,\
                                                             adapted_seg_weights, mode)
             mean_iou_dict[classes[batch]] = mean_iou
             total_val_loss.append(val_loss)
@@ -227,7 +218,7 @@ class LEO(nn.Module):
             "mean_iou_dict":mean_iou_dict
         }
         train_stats.update_stats(**stats_data)
-        return total_loss, train_stats
+        return total_loss, train_stats, seg_weights
 
 def save_model(model, optimizer, config, stats):
     """

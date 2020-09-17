@@ -1,5 +1,5 @@
 from functools import partial
-import os, argparse, torch, gc
+import os, argparse, torch, gc, time
 import numpy as np
 import torch.optim as optim
 from torch.nn import MSELoss
@@ -7,7 +7,8 @@ from easydict import EasyDict as edict
 from torch.utils.tensorboard import SummaryWriter
 from leo_segmentation.data import Datagenerator, TrainingStats
 from leo_segmentation.model import LEO, load_model, save_model
-from leo_segmentation.utils import load_config, check_experiment, get_named_dict
+from leo_segmentation.utils import load_config, check_experiment, get_named_dict, \
+                        log_data
 
 try:
     shell = get_ipython().__class__.__name__
@@ -19,7 +20,7 @@ except NameError:
     dataset = args.dataset
 
 def load_model_and_params(config):
-    """Loads model and accompanying parameters"""
+    """Loads model and accompanying saved parameters"""
     leo, optimizer, stats = load_model(config)
     episodes_completed = stats["episode"]
     leo.eval()
@@ -34,21 +35,24 @@ def train_model(config):
     #writer = SummaryWriter(os.path.join(config.data_path, "models", str(config.experiment.number)))
     device = torch.device("cuda:0" if torch.cuda.is_available() and config.use_gpu else "cpu")
     if check_experiment(config):
-        leo, optimizer, train_stats = load_model_and_params()
+        leo, optimizer, train_stats = load_model_and_params(config)
     else:
         leo = LEO(config).to(device)
         train_stats = TrainingStats(config)
         episodes_completed = 0
         optimizer = torch.optim.Adam(leo.parameters(), lr=config.hyperparameters.outer_loop_lr)
 
-    episodes =  config.hyperparameters.episodes
-
-    for episode in range(episodes_completed+1, episodes+1):
+    model_root = os.path.join(os.path.dirname(__file__), "leo_segmentation", config.data_path, "models")
+    log_file  = os.path.join(model_root, "experiment_{}".format(config.experiment.number), "val_log.txt")
+    total_episodes =  config.hyperparameters.episodes
+    episode_times = []
+    for episode in range(episodes_completed+1, total_episodes+1):
+        start_time = time.time()
         train_stats.set_episode(episode)
         train_stats.set_mode("meta_train")
         dataloader = Datagenerator(config, dataset, data_type="meta_train")
         metadata = dataloader.get_batch_data()
-        metatrain_loss, train_stats = leo.compute_loss(metadata, train_stats, mode="meta_train")
+        metatrain_loss, train_stats, _ = leo.compute_loss(metadata, train_stats, mode="meta_train")
         optimizer.zero_grad()
         metatrain_loss.backward()
         optimizer.step()
@@ -61,27 +65,37 @@ def train_model(config):
         dataloader = Datagenerator(config, dataset, data_type="meta_val")
         train_stats.set_mode("meta_val")
         metadata = dataloader.get_batch_data()
-        _, train_stats = leo.compute_loss(metadata, train_stats, mode="meta_val")
+        _, train_stats, _ = leo.compute_loss(metadata, train_stats, mode="meta_val")
         train_stats.disp_stats()
+        episode_time = (time.time() - start_time)/60
+        log_msg = f"Episode: {episode}, Episode Time: {episode_time:0.03f} minutes\n"
+        print(log_msg)
+        log_data(log_msg, log_file)
+        episode_times.append(episode_time)
 
-        if episode != episodes:
+        if episode != total_episodes:
             del metadata
             gc.collect()
             torch.cuda.ipc_collect()
             torch.cuda.empty_cache()
-
-        model_and_params = leo, _ , train_stats
-        predict_model(config, model_and_params)
-
-        return leo, metadata
+        else:
+            model_and_params = leo, _ , train_stats
+            seg_weights = predict_model(config, model_and_params)
+    
+    log_msg = f"Total Model Training Time {np.sum(episode_times):0.03f} minutes\n"
+    print(log_msg)
+    log_data(log_msg, log_file)
+    return leo, metadata, seg_weights
         
 def predict_model(config, model_and_params):
+    """Implement Predicion on Meta-Test"""
     leo, _ , train_stats = model_and_params
     dataloader = Datagenerator(config, dataset, data_type="meta_test")
     train_stats.set_mode("meta_test")
     metadata = dataloader.get_batch_data()
-    _, train_stats = leo.compute_loss(metadata, train_stats, mode="meta_test")
+    _, train_stats, seg_weights = leo.compute_loss(metadata, train_stats, mode="meta_test")
     train_stats.disp_stats()
+    return seg_weights
 
 def main():
     config = load_config()
