@@ -1,5 +1,4 @@
-#contains data preprocessing functions
-from .utils import meta_classes_selector
+from .utils import meta_classes_selector, print_to_string_io
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, utils, datasets
 from PIL import Image
@@ -67,6 +66,7 @@ class Datagenerator(Dataset):
         classes = self.classes_dict[self._data_type]
         num_classes = config.num_classes
         n_train_per_class = config.n_train_per_class[self._data_type]
+        n_val_per_class = config.n_val_per_class[self._data_type]
         batch_size = config.num_tasks[self._data_type]
         img_datasets = datasets.ImageFolder(root = os.path.join(dataset_root_path, "images"))
         
@@ -96,16 +96,13 @@ class Datagenerator(Dataset):
             
             img_paths = [i[0] for i in img_datasets.imgs if selected_class in i[0]]
             random.shuffle(img_paths)
-            
-            n_val_per_class = config.n_val_per_class[self._data_type]
-            n_val_per_class = len(img_paths) - n_train_per_class if n_val_per_class == "rest" else n_val_per_class
+            if self._data_type == "meta_train":
+                img_paths = list(np.random.choice(img_paths, n_train_per_class + n_val_per_class, replace=False))
+                
+            for img_path in img_paths:
+                data_path_assertions(img_path, "images")
 
-            img_paths = list(np.random.choice(img_paths, n_train_per_class + n_val_per_class, replace=False))
             mask_paths = [i.replace("images", "masks") for i in img_paths]
-           
-            data_path_assertions(img_paths[-1], "images")
-            data_path_assertions(mask_paths[-1], "masks")
-
             #create a list in the case only one image path is created
             img_paths  = [img_paths] if type(img_paths) == str else img_paths
             mask_paths  = [mask_paths] if type(mask_paths) == str else mask_paths
@@ -117,17 +114,27 @@ class Datagenerator(Dataset):
             
             tr_imgs.append(np.array([self.transform_image(Image.open(i)) for i in tr_img_paths]))
             tr_masks.append(np.array([self.transform_mask(Image.open(i)) for i in tr_masks_paths]))
-            val_imgs.append(np.array([self.transform_image(Image.open(i)) for i in val_img_paths]))
-            val_masks.append(np.array([self.transform_mask(Image.open(i)) for i in val_masks_paths]))
+            if self._data_type in ["meta_val", "meta_test"]: 
+                val_imgs.append(val_img_paths)
+                val_masks.append(val_masks_paths)
+            else:
+                val_imgs.append(np.array([self.transform_image(Image.open(i)) for i in val_img_paths]))
+                val_masks.append(np.array([self.transform_mask(Image.open(i)) for i in val_masks_paths]))
 
-        total_tr_img_paths = tr_img_paths + tr_masks_paths
-        total_vl_img_paths = val_img_paths + val_masks_paths
         assert len(classes_selected) == len(set(classes_selected)), "classes are not unique"
-        
-
-        return np.array(tr_imgs), np.array(tr_masks),\
-               np.array(val_imgs), np.array(val_masks),\
-               classes_selected, total_tr_img_paths, total_vl_img_paths
+        total_tr_img_paths = tr_imgs + tr_masks
+        total_vl_img_paths = val_imgs + val_masks
+        if self._data_type == "meta_train": 
+            tr_data, tr_data_masks, val_data, val_masks = np.array(tr_imgs),\
+                                                        np.array(tr_masks),\
+                                                        np.array(val_imgs), \
+                                                        np.array(val_masks)
+            return tr_data, tr_data_masks, val_data, val_masks, \
+                classes_selected, total_tr_img_paths, total_vl_img_paths
+        else:
+            tr_data, tr_data_masks = np.array(tr_imgs), np.array(tr_masks)
+            return tr_data, tr_data_masks, val_imgs, val_masks, \
+                classes_selected, total_tr_img_paths, total_vl_img_paths
 
     def get_batch_data(self):
         return self.__getitem__(0)
@@ -140,22 +147,25 @@ class TrainingStats():
     
     def set_episode(self, episode):
         self.episode = episode
+    
+    def set_mode(self, mode):
+        self.mode = mode
 
     def set_batch(self, batch):
         self.batch = batch
 
     def update_stats(self, **kwargs):
-        
-        self.mode = kwargs["mode"]
         self.kl_loss = kwargs["kl_loss"]
         self.total_val_loss = kwargs["total_val_loss"]
+        self.mean_iou_dict =  kwargs["mean_iou_dict"]
         self._stats.append({
             "mode": self.mode,
             "episode": self.episode,
             "kl_loss": self.kl_loss,
-            "total_val_loss": self.total_val_loss
+            "total_val_loss": self.total_val_loss,
+            "mean_iou_dict":self.mean_iou_dict
         })
-        #self.log_model_stats_to_file()
+        self.log_model_stats_to_file()
 
     def update_inner_loop_stats(self, **kwargs):
         pass
@@ -176,10 +186,12 @@ class TrainingStats():
         model_root = os.path.join(os.path.dirname(__file__), self.config.data_path, "models")
         model_dir  = os.path.join(model_root, "experiment_{}"\
                     .format(self.config.experiment.number))
+        log_file = "train_log.txt" if self.mode == "meta_train" else "val_log.txt"
 
-        with open(os.path.join(model_dir, "model_log.txt"), "a") as f:
+        with open(os.path.join(model_dir, log_file), "a") as f:
+            mean_iou_string = print_to_string_io(self.mean_iou_dict, pretty_print=True)
             msg = f"\nmode:{self.mode}, episode:{self.episode:03d}, kl_loss:{self.kl_loss:2f}, " 
-            msg += f"total_val_loss:{self.total_val_loss:2f}"
+            msg += f"total_val_loss:{self.total_val_loss:2f} \nval_mean_iou:{mean_iou_string}"
             f.write(msg)
    
     def get_stats(self):
@@ -189,7 +201,7 @@ class TrainingStats():
         return self._stats[-1]
 
     def disp_stats(self):
+        mean_iou_string = print_to_string_io(self.mean_iou_dict, pretty_print=True)
         msg = f"\nmode:{self.mode}, episode:{self.episode:03d}, kl_loss:{self.kl_loss:2f}, " 
-        msg += f"total_val_loss:{self.total_val_loss:2f}"
+        msg += f"total_{self.mode}_loss:{self.total_val_loss:2f} \nval_mean_iou:{mean_iou_string}"
         print(msg)
-

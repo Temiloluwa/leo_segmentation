@@ -1,7 +1,8 @@
 import os, torch, numpy as np
 import tensorflow as tf
+from tqdm import tqdm
 from .utils import display_data_shape, get_named_dict, calc_iou_per_class,\
-    log_data, load_config, summary_write_masks
+    log_data, load_config, summary_write_masks, list_to_tensor
 
 def mobilenet_v2_encoder(img_dims):
     """ Initialize the encoder using weights from mobilenetv2"""
@@ -142,34 +143,7 @@ class LEO:
         features = self.forward_decoder(encoder_outputs)
         pred = self.forward_segnetwork(features, x, self.seg_weight)
         return latents, features, pred
-
-    def evaluate(self, metadata):
-        num_tasks = len(metadata[0])
-    
-        def cal_iou(x, target, class_name, batch):
-            iou_per_class = []
-            _, _ , logits = self.__call__(x)
-            pred = np.argmax(logits.numpy(),axis=-1).astype(int)
-            target = target.astype(int)
-            iou = np.sum(np.logical_and(target, pred))/np.sum(np.logical_or(target, pred))
-            iou_per_class.append(iou)
-            mean_iou_per_class = np.mean(iou_per_class)
-            print(f"class: {class_name[batch]}, iou: {mean_iou_per_class}")
         
-        print("\n**Train**")
-        for batch in range(num_tasks):   
-            data_dict = get_named_dict(metadata, batch)
-            cal_iou(data_dict.tr_imgs, data_dict.tr_masks, metadata[4], batch)
-        
-        print("**Validation**")
-        for batch in range(num_tasks):
-            data_dict = get_named_dict(metadata, batch)
-            cal_iou(data_dict.val_imgs, data_dict.val_masks, metadata[4], batch)
-        
-        #log_filename = os.path.join(os.path.dirname(__file__), "data", "models",\
-        #                 f"experiment_{self.config.experiment.number}", "val_stats_log.txt")
-        #log_data(log_msg, log_filename)
-
     @tf.function
     def leo_inner_loop(self, x, y):
         """
@@ -200,7 +174,7 @@ class LEO:
         return seg_weight_grad, features
 
     @tf.function
-    def finetuning_inner_loop(self, data_dict, tr_features, seg_weight_grad):
+    def finetuning_inner_loop(self, data_dict, tr_features, seg_weight_grad, mode):
         """
         Finetunes the segmenation weights/kernels by performing MAML
         Args:
@@ -221,23 +195,51 @@ class LEO:
                 tr_loss =  self.loss_fn(data_dict.tr_masks, pred)
                 seg_weight_grad = tape.gradient(tr_loss, weight)
                 weight -= finetuning_lr * seg_weight_grad
-                
-            encoder_outputs = self.forward_encoder(data_dict.val_imgs)
-            features = self.forward_decoder(encoder_outputs)
-            pred = self.forward_segnetwork(features, data_dict.val_imgs, weight)
-            val_loss =  self.loss_fn(data_dict.val_masks, pred)
-            seg_weight_grad =  tape.gradient(val_loss, weight)
-            decoder_gradients = tape.gradient(val_loss, self.decoder.trainable_variables)
-        return val_loss, seg_weight_grad, decoder_gradients
-    
-    def compute_loss(self, metadata, train_stats, mode="meta_train"):
+
+            if mode == "meta_train": 
+                encoder_outputs = self.forward_encoder(data_dict.val_imgs)
+                features = self.forward_decoder(encoder_outputs)
+                pred = self.forward_segnetwork(features, data_dict.val_imgs, weight)
+                val_loss =  self.loss_fn(data_dict.val_masks, pred)
+                seg_weight_grad =  tape.gradient(val_loss, weight)
+                decoder_gradients = tape.gradient(val_loss, self.decoder.trainable_variables)
+                return val_loss, seg_weight_grad, decoder_gradients, pred, weight
+            else:
+                return None, None, None, None, weight
+               
+    def evaluate(self, data, prediction, weight, transformers, mode):
+        img_transformer, mask_transformer = transformers
+        if mode == "meta_train":
+            mean_iou = calc_iou_per_class(prediction, data.val_masks)
+            return mean_iou, None
+        else:
+            mean_ious = []
+            val_losses = []
+            val_img_paths = data.val_imgs
+            val_mask_paths = data.val_masks
+            for _img_path, _mask_path in tqdm(zip(val_img_paths, val_mask_paths)):
+                input_img = list_to_tensor(_img_path, img_transformer)
+                input_mask = list_to_tensor(_mask_path, mask_transformer)
+                encoder_outputs = self.forward_encoder(input_img)
+                features = self.forward_decoder(encoder_outputs)
+                prediction = self.forward_segnetwork(features, input_img, weight)
+                val_loss =  self.loss_fn(input_mask, prediction)
+                mean_iou = calc_iou_per_class(prediction, input_mask)
+                mean_ious.append(mean_iou)
+                val_losses.append(val_loss)
+            mean_iou = np.mean(mean_ious)
+            val_loss = np.mean(val_losses)
+        return mean_iou, val_loss
+        
+        
+    def compute_loss(self, metadata, train_stats, transformers, mode="meta_train"):
         """
             Performs meta optimization across tasks
             returns the meta validation loss across tasks 
-
         Args:
             metadata(dict): dictionary containing training data
-            train_stats(object): object that stores training statistics 
+            train_stats(object): object that stores training statistics
+            transformers(tuple): tuple of train and validation datatransformers 
             mode(str): meta_train, meta_val or meta_test
         Returns:
             total_val_loss(float32): meta-validation loss
@@ -247,32 +249,40 @@ class LEO:
         if train_stats.episode % self.config.display_stats_interval == 1:
             display_data_shape(metadata)
 
+        classes = metadata[4]
         total_val_loss = []
+        kl_losses = None
+        mean_iou_dict = {} 
         total_gradients = None
         for batch in range(num_tasks):
-            data_dict = get_named_dict(metadata, batch)
-            seg_weight_grad, features = self.leo_inner_loop(data_dict.tr_imgs, data_dict.tr_masks)
-            val_loss, seg_weight_grad, decoder_gradients = self.finetuning_inner_loop(data_dict, features, seg_weight_grad)
-            total_val_loss.append(val_loss)
-            decoder_gradients = [grad/num_tasks for grad in decoder_gradients]
+            data = get_named_dict(metadata, batch)
+            seg_weight_grad, features = self.leo_inner_loop(data.tr_imgs, data.tr_masks)
+            tr_val_loss, seg_weight_grad, decoder_gradients, prediction, weight = self.finetuning_inner_loop(data, features, \
+                                                                        seg_weight_grad, mode)
+            if mode == "meta_train":
+                decoder_gradients = [grad/num_tasks for grad in decoder_gradients]
+                if total_gradients == None:
+                    total_gradients = decoder_gradients
+                    seg_weight_grad = seg_weight_grad/num_tasks
+                else:
+                    total_gradients = [total_gradients[i] + decoder_gradients[i] for i in range(len(decoder_gradients))]
+                    seg_weight_grad += seg_weight_grad/num_tasks
+                self.optimizer.apply_gradients(zip(total_gradients, self.decoder.trainable_variables))
+                self.optimizer.apply_gradients([(seg_weight_grad, self.seg_weight)])
 
-            if total_gradients == None:
-                total_gradients = decoder_gradients
-                seg_weight_grad = seg_weight_grad/num_tasks
-            else:
-                total_gradients = [total_gradients[i] + decoder_gradients[i] for i in range(len(decoder_gradients))]
-                seg_weight_grad += seg_weight_grad/num_tasks
-        
-        total_val_loss = float(sum(total_val_loss)/len(total_val_loss))
-        self.optimizer.apply_gradients(zip(total_gradients, self.decoder.trainable_variables))
-        self.optimizer.apply_gradients([(seg_weight_grad, self.seg_weight)])
+            mean_iou, val_loss = self.evaluate(data, prediction, weight, transformers, mode)
+            val_loss = tr_val_loss if mode == "meta_train" else val_loss
+            mean_iou_dict[classes[batch]] = mean_iou
+            total_val_loss.append(val_loss)
+           
+        total_val_loss = float(sum(total_val_loss)/len(total_val_loss))  
         stats_data = {
             "mode": mode,
             "kl_loss": 0,
-            "total_val_loss":total_val_loss
+            "total_val_loss":total_val_loss,
+            "mean_iou_dict":mean_iou_dict
         }
         train_stats.update_stats(**stats_data)
-        
         return total_val_loss, train_stats
 
 #TO-DO: Change from pytorch to tensorflow

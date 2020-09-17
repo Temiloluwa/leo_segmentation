@@ -24,6 +24,6 @@
         "num_latents":50,
         "num_finetuning_steps":5,
         "num_adaptation_steps":5,
-        "episodes":1000
+        "episodes":1
     }
 }

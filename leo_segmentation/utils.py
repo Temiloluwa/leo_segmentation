@@ -1,10 +1,12 @@
 import torch
 import torch.optim as optim
-import os, pickle, json, random
+import os, sys, pprint, pickle, json, random, tensorflow as tf
 import numpy as np
 import torchvision
+from PIL import Image
 from matplotlib import pyplot as plt
 from easydict import EasyDict as edict
+from io import StringIO
 
 def load_config(config_path:str = "leo_segmentation/data/config.json"):
     """Loads config file"""
@@ -79,6 +81,16 @@ def load_pickled_data(data_path):
         data = pickle.load(f)
     return data
 
+def list_to_tensor(_list, image_transformer):
+    """Converts list of paths to pytorch tensor"""
+    if type(_list[0]) == list:
+        return [image_transformer(Image.open(i)) for i in _list]
+    else:
+        return np.expand_dims(image_transformer(Image.open(_list)), 0)
+
+#TO-DO Modify for tensorflow
+#Currently create log returns None
+#Create log truncates function
 def check_experiment(config):
     """
     Checks if the experiment is new or not
@@ -89,7 +101,7 @@ def check_experiment(config):
         Bool
     """
     experiment = config.experiment
-    model_root = os.path.join(config.data_path, "models")
+    model_root = os.path.join(os.path.dirname(__file__), config.data_path, "models")
     model_dir = os.path.join(model_root, "experiment_{}" \
                              .format(experiment.number))
     def create_log():
@@ -97,12 +109,14 @@ def check_experiment(config):
             os.makedirs(model_dir, exist_ok=True)
         msg = f"*********************Experiment {experiment.number}********************\n"
         msg += f"Description: {experiment.description}"
-        log_filename = os.path.join(model_dir, "model_log.txt")
-        log_data(msg, log_filename)
-        log_filename = os.path.join(model_dir, "val_stats_log.txt")
-        msg = "*******************Val stats *************"
-        log_data(msg, log_filename)
-        return 
+        log_filename = os.path.join(model_dir, "train_log.txt")
+        log_data(msg, log_filename, overwrite=True)
+        log_filename = os.path.join(model_dir, "val_log.txt")
+        msg = "******************* Val stats *************\n"
+        log_data(msg, log_filename, overwrite=True)
+        return None
+
+    return create_log()
 
     if not os.path.exists(model_root):
         os.makedirs(model_root, exist_ok=True)
@@ -138,20 +152,16 @@ def display_data_shape(metadata):
     if type(metadata) == tuple:
         tr_imgs, tr_masks, val_imgs, val_masks, _, _, _ = metadata
         print(f"num tasks: {len(tr_imgs)}")
-    else:
-        tr_imgs, tr_masks, val_imgs, val_masks = metadata.tr_imgs,\
-            metadata.tr_masks, metadata.val_imgs, metadata.val_masks 
-   
-    print("tr_imgs shape: {},tr_masks shape: {}, val_imgs shape: {},val_masks shape: {}". \
-            format(tr_imgs.shape, tr_masks.shape, val_imgs.shape, val_masks.shape))
+        val_imgs_shape = f"{len(val_imgs)} list of paths" if type(val_imgs) == list else  val_imgs.shape
+        val_masks_shape = f"{len(val_imgs)} list of paths"  if type(val_masks) == list else val_masks.shape
+    
+    print("tr_imgs shape: {},tr_masks shape: {}, val_imgs shape: {}, val_masks shape: {}". \
+            format(tr_imgs.shape, tr_masks.shape, val_imgs_shape, val_masks_shape))
     
 
-def log_data(msg, log_filename):
+def log_data(msg, log_filename, overwrite=False):
     """Log data to a file"""
-    if os.path.exists(log_filename):
-        mode_ = "a"
-    else:
-        mode_ = "w"
+    mode_ = "w" if not os.path.exists(log_filename) or overwrite else "a"
     with open(log_filename, mode_) as f:
         f.write(msg)
 
@@ -159,11 +169,11 @@ def calc_iou_per_class(pred_x, targets):
     """Calculates iou"""
     iou_per_class = []
     for i in range(len(pred_x)):
-        pred = np.argmax(pred_x[i].numpy(), 0).astype(int)
-        target = targets[i].numpy().astype(int)
+        pred = np.argmax(pred_x[i].numpy(), -1).astype(int)
+        target = targets[i].astype(int)
         iou = np.sum(np.logical_and(target, pred))/np.sum(np.logical_or(target, pred))
         iou_per_class.append(iou)
-        mean_iou_per_class = np.mean(iou_per_class)
+    mean_iou_per_class = np.mean(iou_per_class)
     return mean_iou_per_class
 
 def plot_masks(mask_data, ground_truth=False):
@@ -202,3 +212,15 @@ def summary_write_masks(batch_data, writer, grid_title, ground_truth=False):
 
     writer.add_image(grid_title, masks_grid, episode)
 
+def print_to_string_io(variable_to_print, pretty_print=True):
+    """ Prints value to string_io and returns value"""
+    previous_stdout = sys.stdout
+    sys.stdout = string_buffer = StringIO()
+    pp = pprint.PrettyPrinter(indent=4)
+    if pretty_print:
+        pp.pprint(variable_to_print)
+    else:
+        print(variable_to_print)
+    sys.stdout = previous_stdout
+    string_value = string_buffer.getvalue()
+    return string_value
