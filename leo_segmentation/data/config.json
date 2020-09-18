@@ -1,8 +1,8 @@
 {
     "train":true,
     "use_gpu":true,
-    "checkpoint_interval":99,
-    "display_stats_interval":100,
+    "checkpoint_interval":120,
+    "display_stats_interval":120,
     "dtype":"float32",
     "data_path":"data",
     "datasets":["pascal_voc", "sample_data", "fss1000", "pascal_voc_raw"],
@@ -16,14 +16,14 @@
     },
     "experiment":{"number":1, "episode":1, "description":"testing", "prompt_deletion":false},
     "hyperparameters":{
-        "outer_loop_lr":1e-4,
-        "inner_loop_lr":1e-4,
-        "finetuning_lr":1e-4,
+        "outer_loop_lr":1e-3,
+        "inner_loop_lr":1e-3,
+        "finetuning_lr":1e-3,
         "dropout_rate":0.2,
         "kl_weight":0.5,
         "num_latents":50,
         "num_finetuning_steps":5,
         "num_adaptation_steps":5,
-        "episodes":1
+        "episodes":100
     }
 }
