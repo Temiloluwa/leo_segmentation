@@ -239,13 +239,8 @@ class LEO(nn.Module):
         true_outputs[target > self.config["data_params"]["num_classes"]-1] = 0 #temporary sample data improper
         """
         loss = self.loss(output_mask.type(torch.FloatTensor), true_outputs.squeeze(1).type(torch.LongTensor))
-<<<<<<< HEAD
-    
-        return loss
-=======
         iou = calc_iou_per_class(output_mask, true_outputs)
         return loss, iou
->>>>>>> e9905d1... LEO with relation network
 
     def relation_network(self, latents):
         """

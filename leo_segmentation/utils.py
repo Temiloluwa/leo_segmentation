@@ -1,5 +1,4 @@
 import torch
-import torch.optim as optim
 import os, pickle, json, random
 import numpy as np
 import torchvision

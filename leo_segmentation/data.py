@@ -59,26 +59,6 @@ class Datagenerator(Dataset):
                 assert _img_or_mask == img_or_mask, "wrong data type (image or mask)"
                 assert _selected_class == selected_class, "wrong class (selected class)"
 
-<<<<<<< HEAD
-            img_tr_path = os.path.join(train_root_path, "images")
-<<<<<<< HEAD
-            img_datasets_train = datasets.DatasetFolder(root=img_tr_path, loader=loader(img_tr_path, selected_class), extensions=".npy")
-            img_vl_path = os.path.join(val_root_path, "images")
-            img_datasets_val = datasets.DatasetFolder(root=img_vl_path, loader=loader(img_vl_path, selected_class), extensions=".npy")
-            
-=======
-            img_datasets_train = datasets.DatasetFolder(root=img_tr_path, loader=loader(img_tr_path, selected_class),
-                                                        extensions=".npy")
-            img_vl_path = os.path.join(val_root_path, "images")
-            img_datasets_val = datasets.DatasetFolder(root=img_vl_path, loader=loader(img_vl_path, selected_class),
-                                                      extensions=".npy")
-
->>>>>>> 9cf2f53... LEO for Segmentation for Pascal VOC
-            img_paths_train = [i for i in img_datasets_train.loader if selected_class in i]
-            random.shuffle(img_paths_train)
-            img_paths_train = list(np.random.choice(img_paths_train, n_train_per_class, replace=False))
-            data_path_assertions(img_paths_train[-1], "images", "train")
-=======
             img_paths = os.path.join(dataset_root_path, "images")
             img_datasets = datasets.DatasetFolder(root=img_paths, loader=loader(img_paths, selected_class),
                                                   extensions=".npy")
@@ -88,7 +68,6 @@ class Datagenerator(Dataset):
 
             if self._data_type == "meta_train":
                 img_paths = list(np.random.choice(img_paths, n_train_per_class + n_val_per_class, replace=False))
->>>>>>> e9905d1... LEO with relation network
 
             for img_path in img_paths:
                 data_path_assertions(img_path, "images")
@@ -97,16 +76,12 @@ class Datagenerator(Dataset):
             img_paths_val = img_paths[n_train_per_class:]
             mask_paths_train = [i.replace("images", "masks") for i in img_paths_train]
             mask_paths_val = [i.replace("images", "masks") for i in img_paths_val]
-<<<<<<< HEAD
-            
-=======
 
->>>>>>> 9cf2f53... LEO for Segmentation for Pascal VOC
             tr_img_paths.extend(img_paths_train)
             tr_masks_paths.extend(mask_paths_train)
             val_img_paths.extend(img_paths_val)
             val_masks_paths.extend(mask_paths_val)
-            
+
             tr_imgs.append(np.array([load_npy(i) for i in tr_img_paths]))
             tr_masks.append(np.array([load_npy(i) for i in tr_masks_paths]))
             if self._data_type in ["meta_val", "meta_test"]:
@@ -118,16 +93,6 @@ class Datagenerator(Dataset):
 
         assert len(classes_selected) == len(set(classes_selected)), "classes are not unique"
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-        return numpy_to_tensor(np.array(tr_imgs)), numpy_to_tensor(np.array(tr_masks)),\
-               numpy_to_tensor(np.array(val_imgs)), numpy_to_tensor(np.array(val_masks))
-=======
-        return numpy_to_tensor(np.array(np.array(tr_imgs))), numpy_to_tensor(np.array(np.array(tr_masks))), \
-               numpy_to_tensor(np.array(np.array(val_imgs))), numpy_to_tensor(np.array(np.array(val_masks))), \
-               classes_selected
->>>>>>> 9cf2f53... LEO for Segmentation for Pascal VOC
-=======
         if self._data_type == "meta_train":
             tr_data, tr_data_masks, val_data, val_masks = numpy_to_tensor(np.array(tr_imgs)), \
                                                           numpy_to_tensor(np.array(tr_masks)), \
@@ -137,7 +102,6 @@ class Datagenerator(Dataset):
         else:
             tr_data, tr_data_masks = numpy_to_tensor(np.array(tr_imgs)), numpy_to_tensor(np.array(tr_masks))
             return tr_data, tr_data_masks, val_imgs, val_masks, classes_selected
->>>>>>> e9905d1... LEO with relation network
 
     def get_batch_data(self):
         return self.__getitem__(0)
