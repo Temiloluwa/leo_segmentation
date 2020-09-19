@@ -1,4 +1,3 @@
-from functools import partial
 import os, argparse, torch, gc, time
 import numpy as np
 import torch.optim as optim
