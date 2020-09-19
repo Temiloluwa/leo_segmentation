@@ -1,107 +1,103 @@
-from utils import load_config, check_experiment,  \
-    display_data_shape, get_named_dict
-from data import Datagenerator, TrainingStats
-from model import LEO, load_model, save_model
+from functools import partial
+import os, argparse, torch, gc, time
+import numpy as np
+import torch.optim as optim
 from torch.nn import MSELoss
 from easydict import EasyDict as edict
-import torch.optim as optim
-import argparse
-import torch
-import torch.optim
 from torch.utils.tensorboard import SummaryWriter
-writer = SummaryWriter()
+from data import Datagenerator, TrainingStats
+from model import LEO, load_model, save_model
+from utils import load_config, check_experiment, get_named_dict, log_data
 
-dataset = "pascal_voc"
+try:
+    shell = get_ipython().__class__.__name__
+    dataset = "pascal_voc"
+except NameError:
+    parser = argparse.ArgumentParser(description='Specify train or inference dataset')
+    parser.add_argument("-d", "--dataset", type=str, nargs=1, default="pascal_voc")
+    args = parser.parse_args()
+    dataset = args.dataset
 
 
-def compute_loss(model, meta_dataloader, train_stats, config, device, iteration = 0, mode="meta_train"):
-    """
-    Computes the  outer loop loss
-    Args:
-        model (object) : leo model
-        meta_dataloader (object): Dataloader
-        train_stats: (object): train stats objecdt
-        config (dict): config
-        mode (str): meta_train, meta_val or meta_test
-    Returns:
-        (tuple) total_val_loss (list), train_stats
-    """
-    metadata = meta_dataloader.get_batch_data()
-    num_tasks = len(metadata[0])
-    display_data_shape(metadata)
-    kl_losses = []
-    total_val_loss = []
-    for batch in range(num_tasks):
-        data_dict = get_named_dict(metadata, batch)
-        print(data_dict.tr_data.is_cuda)
-        latents, kl_loss = model.forward_encoder(data_dict.tr_data, mode, device)
-        per_batch_tr_loss, adapted_segmentation_weights = model.leo_inner_loop(data_dict, latents, device)
-        per_batch_val_loss = model.finetuning_inner_loop(data_dict, per_batch_tr_loss, adapted_segmentation_weights, device)
-        per_batch_val_loss = per_batch_val_loss + (config.kl_weight * kl_loss)
-        if mode == "meta_train":
-            writer.add_scalar('train_loss', per_batch_tr_loss, iteration)
-            writer.add_scalar('val_loss', per_batch_val_loss, iteration)
-            #print(iteration)
-            iteration += 1
-        total_val_loss.append(per_batch_val_loss)
-        kl_losses.append(kl_loss)
-        #print("Batch number", batch)
-    stats_data = {
-        "mode": mode,
-        "kl_loss": sum(kl_losses) / len(kl_losses),
-        "total_val_loss": sum(total_val_loss) / len(total_val_loss)
-    }
-    train_stats.update_stats(**stats_data)
-    return total_val_loss, train_stats, iteration
+def load_model_and_params(config, device):
+    """Loads model and accompanying saved parameters"""
+    leo, optimizer, stats = load_model(config)
+    episodes_completed = stats["episode"]
+    leo.eval()
+    leo = leo.to(device)
+    train_stats = TrainingStats(config)
+    train_stats.set_episode(episodes_completed)
+    train_stats.update_stats(**stats)
+    return leo, optimizer, train_stats
 
 
 def train_model(config):
     """Trains Model"""
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    # writer = SummaryWriter(os.path.join(config.data_path, "models", str(config.experiment.number)))
+    device = torch.device("cuda:0" if torch.cuda.is_available() and config.use_gpu else "cpu")
     if check_experiment(config):
-        leo, optimizer, stats = load_model(config)
-        episodes_completed = stats["episode"]
-        leo.eval()
-        leo = leo.to(device)
-        train_stats = TrainingStats(config)
-        train_stats.set_episode(episodes_completed)
-        train_stats.update_stats(**stats)
+        leo, optimizer, train_stats = load_model_and_params(config, device)
     else:
         leo = LEO(config).to(device)
         train_stats = TrainingStats(config)
         episodes_completed = 0
+        optimizer = torch.optim.Adam(leo.parameters(), lr=config.hyperparameters.outer_loop_lr)
 
-    episodes = config.hyperparameters.episodes
-    # outerloop
-    # optimizer = torch.optim.Adam(leo.parameters(), lr=config.hyperparameters.outer_loop_lr)
-    # criterion = MSELoss(reduction="mean")
-    itr = 1
-    for episode in range(episodes_completed + 1, episodes + 1):
+    model_root = os.path.join(os.path.dirname(__file__), "leo_segmentation", config.data_path, "models")
+    log_file = os.path.join(model_root, "experiment_{}".format(config.experiment.number), "val_log.txt")
+    total_episodes = config.hyperparameters.episodes
+    episode_times = []
+    for episode in range(episodes_completed + 1, total_episodes + 1):
+        start_time = time.time()
         train_stats.set_episode(episode)
-        dataloader = Datagenerator(config, dataset, data_type="meta_train", generate_new_metaclasses=False)
-        metatrain_loss, train_stats, itr = compute_loss(leo, dataloader, train_stats, config, device, iteration = itr)
-        metatrain_loss = sum(metatrain_loss) / len(metatrain_loss)
-        writer.add_scalar('metatrain_loss', metatrain_loss, episode)
-        metatrain_gradients, metatrain_variables = leo.grads_and_vars(metatrain_loss)
-        # confirm this
-        optimizer = torch.optim.Adam(metatrain_gradients, lr=config.hyperparameters.outer_loop_lr)
-        optimizer.step()
+        train_stats.set_mode("meta_train")
+        dataloader = Datagenerator(config, dataset, data_type="meta_train")
+        metadata = dataloader.get_batch_data()
+        metatrain_loss, train_stats, _ = leo.compute_loss(metadata, train_stats, mode="meta_train")
         optimizer.zero_grad()
+        metatrain_loss.backward()
+        optimizer.step()
+        train_stats.disp_stats()
         if episode % config.checkpoint_interval == 0:
             save_model(leo, optimizer, config, edict(train_stats.get_latest_stats()))
-
+            # writer.add_graph(leo, metadata[:-1])
+            # writer.close()
+        """
+        dataloader = Datagenerator(config, dataset, data_type="meta_val")
+        train_stats.set_mode("meta_val")
+        metadata = dataloader.get_batch_data()
+        _, train_stats, _ = leo.compute_loss(metadata, train_stats, mode="meta_val")
         train_stats.disp_stats()
-        dataloader = Datagenerator(dataset, config, data_type="meta_val")
-        _, train_stats, _ = compute_loss(leo, dataloader, train_stats, config, device, mode="meta_val")
-        train_stats.disp_stats()
+        episode_time = (time.time() - start_time) / 60
+        log_msg = f"Episode: {episode}, Episode Time: {episode_time:0.03f} minutes\n"
+        print(log_msg)
+        log_data(log_msg, log_file)
+        episode_times.append(episode_time)
+        """
+        if episode != total_episodes:
+            del metadata
+            gc.collect()
+            torch.cuda.ipc_collect()
+            torch.cuda.empty_cache()
+        else:
+            model_and_params = leo, _, train_stats
+            seg_weights = predict_model(config, model_and_params)
 
-        dataloader = Datagenerator(dataset, config, data_type="meta_test")
-        _, train_stats, _ = compute_loss(leo, dataloader, train_stats, config, device, mode="meta_test")
-        train_stats.disp_stats()
+    log_msg = f"Total Model Training Time {np.sum(episode_times):0.03f} minutes\n"
+    print(log_msg)
+    log_data(log_msg, log_file)
+    return leo, metadata, seg_weights
 
 
-def predict_model(config):
-    pass
+def predict_model(config, model_and_params):
+    """Implement Predicion on Meta-Test"""
+    leo, _, train_stats = model_and_params
+    dataloader = Datagenerator(config, dataset, data_type="meta_test")
+    train_stats.set_mode("meta_test")
+    metadata = dataloader.get_batch_data()
+    _, train_stats, seg_weights = leo.compute_loss(metadata, train_stats, mode="meta_test")
+    train_stats.disp_stats()
+    return seg_weights
 
 
 def main():
@@ -109,7 +105,8 @@ def main():
     if config.train:
         train_model(config)
     else:
-        predict_model(config)
+        model_and_params = load_model_and_params(config)
+        predict_model(config, model_and_params)
 
 
 if __name__ == "__main__":

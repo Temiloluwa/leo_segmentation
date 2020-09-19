@@ -3,8 +3,11 @@ import torch.optim as optim
 import os, pickle, json, random
 import numpy as np
 import torchvision
+import sys, pprint
 from matplotlib import pyplot as plt
 from easydict import EasyDict as edict
+from io import StringIO
+
 
 def load_config(config_path: str = "data/config.json"):
     """Loads config file"""
@@ -27,27 +30,26 @@ def meta_classes_selector(config, dataset, generate_new, shuffle_classes=False):
     Returns:
         meta_classes_splits(dict): contains classes for meta_train, meta_val and meta_test
     """
-    #issue with config, dataset exchange
-    if config == "pascal_voc":
-        temp = config
-        config = dataset
-        dataset = temp
-    ratio = config.data_params.meta_train_val_test_ratio
+    class_splits = config.data_params.meta_class_splits
     if dataset in config.datasets:
         data_path = os.path.join(os.path.dirname(__file__), config.data_path, f"{dataset}", "meta_classes.pkl")
         if os.path.exists(data_path) and not generate_new:
             meta_classes_splits = load_pickled_data(data_path)
         else:
-            classes = os.listdir(os.path.join(os.path.dirname(__file__), "data", f"{dataset}", "train", "images"))
+            classes = os.listdir(os.path.join(os.path.dirname(__file__), config.data_path, f"{dataset}", "images"))
             if shuffle_classes:
                 random.shuffle(classes)
-            meta_classes_splits = {"meta_train": classes[:ratio[0]],
-                                   "meta_val": classes[ratio[0]:ratio[0] + ratio[1]],
-                                   "meta_test": classes[ratio[0] + ratio[1]:ratio[0] + ratio[1] + ratio[2]]}
-            assert (len(meta_classes_splits["meta_train"]) + \
-                    len(meta_classes_splits["meta_val"]) + \
-                    len(meta_classes_splits["meta_test"])) == len(classes), \
-                "error exists in the ratios supplied"
+            meta_classes_splits = {"meta_train": classes[class_splits.meta_train[0]:class_splits.meta_train[1]],
+                                   "meta_val": classes[class_splits.meta_val[0]:class_splits.meta_val[1]],
+                                   "meta_test": classes[class_splits.meta_test[0]:class_splits.meta_test[1]]}
+
+            total_count = class_splits.meta_train[1] - class_splits.meta_train[0] + \
+                          class_splits.meta_val[1] - class_splits.meta_val[0] + \
+                          class_splits.meta_test[1] - class_splits.meta_test[0]
+
+            assert len(set(meta_classes_splits["meta_train"] + \
+                           meta_classes_splits["meta_val"] + \
+                           meta_classes_splits["meta_test"])) == total_count, "error exists in the ratios supplied"
 
             if os.path.exists(data_path):
                 os.remove(data_path)
@@ -102,6 +104,15 @@ def tensor_to_numpy(pytensor):
         return pytensor.detach().numpy()
 
 
+def list_to_tensor(_list):
+    """Converts list of paths to pytorch tensor"""
+    tensor = numpy_to_tensor(load_npy(_list))
+    if type(_list[0]) == list:
+        return prepare_inputs(tensor)
+    else:
+        return prepare_inputs(torch.unsqueeze(tensor, 0))
+
+
 def check_experiment(config):
     """
     Checks if the experiment is new or not
@@ -112,7 +123,7 @@ def check_experiment(config):
         Bool
     """
     experiment = config.experiment
-    model_root = os.path.join(config.data_path, "models")
+    model_root = os.path.join(os.path.dirname(__file__), config.data_path, "models")
     model_dir = os.path.join(model_root, "experiment_{}" \
                              .format(experiment.number))
 
@@ -121,11 +132,11 @@ def check_experiment(config):
             os.makedirs(model_dir, exist_ok=True)
         msg = f"*********************Experiment {experiment.number}********************\n"
         msg += f"Description: {experiment.description}"
-        log_filename = os.path.join(model_dir, "model_log.txt")
-        log_data(msg, log_filename)
-        log_filename = os.path.join(model_dir, "val_stats_log.txt")
-        msg = "*******************Val stats *************"
-        log_data(msg, log_filename)
+        log_filename = os.path.join(model_dir, "train_log.txt")
+        log_data(msg, log_filename, overwrite=True)
+        log_filename = os.path.join(model_dir, "val_log.txt")
+        msg = "******************* Val stats *************\n"
+        log_data(msg, log_filename, overwrite=True)
         return
 
     if not os.path.exists(model_root):
@@ -156,9 +167,9 @@ def prepare_inputs(data):
     Returns:
         data (tensor): (num_examples_per_class, channels, height, width)
     """
-
-    if len(data.shape) == 4:
-        data = data.permute((0, 3, 1, 2))
+    if type(data) != list:
+        if len(data.shape) == 4:
+            data = data.permute((0, 3, 1, 2))
     return data
 
 
@@ -172,25 +183,23 @@ def get_named_dict(metadata, batch):
     return edict(data_dict)
 
 
-def display_data_shape(metadata):
+def display_data_shape(metadata, mode):
     """Displays data shape"""
-    if type(metadata) == tuple:
-        tr_data, tr_data_masks, val_data, val_masks, _ = metadata
-        print(f"num tasks: {len(tr_data)}")
-    else:
-        tr_data, tr_data_masks, val_data, val_masks = metadata.tr_data, \
-                                                      metadata.tr_data_masks, metadata.val_data, metadata.val_data_masks
+    if mode == "meta_train":
+        if type(metadata) == tuple:
+            tr_data, tr_data_masks, val_data, val_masks, _ = metadata
+            print(f"num tasks: {len(tr_data)}")
+        else:
+            tr_data, tr_data_masks, val_data, val_masks = metadata.tr_data, \
+                                                          metadata.tr_data_masks, metadata.val_data, metadata.val_data_masks
 
-    print("tr_data shape: {},tr_data_masks shape: {}, val_data shape: {},val_masks shape: {}". \
-          format(tr_data.size(), tr_data_masks.size(), val_data.size(), val_masks.size()))
+        print("tr_data shape: {},tr_data_masks shape: {}, val_data shape: {},val_masks shape: {}". \
+              format(tr_data.size(), tr_data_masks.size(), val_data.size(), val_masks.size()))
 
 
-def log_data(msg, log_filename):
+def log_data(msg, log_filename, overwrite=False):
     """Log data to a file"""
-    if os.path.exists(log_filename):
-        mode_ = "a"
-    else:
-        mode_ = "w"
+    mode_ = "w" if not os.path.exists(log_filename) or overwrite else "a"
     with open(log_filename, mode_) as f:
         f.write(msg)
 
@@ -203,7 +212,7 @@ def calc_iou_per_class(pred_x, targets):
         target = targets[i].cpu().detach().numpy().astype(int)
         iou = np.sum(np.logical_and(target, pred)) / np.sum(np.logical_or(target, pred))
         iou_per_class.append(iou)
-        mean_iou_per_class = np.mean(iou_per_class)
+    mean_iou_per_class = np.mean(iou_per_class)
     return mean_iou_per_class
 
 
@@ -261,160 +270,15 @@ def summary_write_masks(batch_data, writer, grid_title, ground_truth=False):
     writer.add_image(grid_title, masks_grid, episode)
 
 
-def save_model(model, optimizer, config, stats):
-    """
-    Save the model while training based on check point interval
-
-    if episode number is not -1 then a prompt to delete checkpoints occur if
-    checkpoints for that episode number exits.
-    This only occurs if the prompt_deletion flag in the experiment dictionary
-    is true else checkpoints that already exists are automatically deleted
-    Args:
-        model - trained model
-        optimizer - optimized weights
-        config - global config
-        stats - dictionary containing stats for the current episode
-
-    Returns:
-    """
-    data_to_save = {
-        'mode': stats.mode,
-        'episode': stats.episode,
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'kl_loss': stats.kl_loss,
-        'total_val_loss': stats.total_val_loss
-    }
-
-    experiment = config.experiment
-    model_root = os.path.join(config.data_path, "models")
-    model_dir = os.path.join(model_root, "experiment_{}" \
-                             .format(experiment.number))
-
-    checkpoint_path = os.path.join(model_dir, f"checkpoint_{stats.episode}.pth.tar")
-    if not os.path.exists(checkpoint_path):
-        torch.save(data_to_save, checkpoint_path)
+def print_to_string_io(variable_to_print, pretty_print=True):
+    """ Prints value to string_io and returns value"""
+    previous_stdout = sys.stdout
+    sys.stdout = string_buffer = StringIO()
+    pp = pprint.PrettyPrinter(indent=4)
+    if pretty_print:
+        pp.pprint(variable_to_print)
     else:
-        trials = 0
-        while trials < 3:
-            if experiment.prompt_deletion:
-                print(f"Are you sure you want to delete checkpoint: {stats.episode}")
-                print(f"Type Yes or y to confirm deletion else No or n")
-                user_input = input()
-            else:
-                user_input = "Yes"
-            positive_options = ["Yes", "y", "yes"]
-            negative_options = ["No", "n", "no"]
-            if user_input in positive_options:
-                # delete checkpoint
-                os.remove(checkpoint_path)
-                torch.save(data_to_save, checkpoint_path)
-                log_filename = os.path.join(model_dir, "model_log.txt")
-                msg = msg = f"\n*********** checkpoint {stats.episode} was deleted **************"
-                log_data(msg, log_filename)
-                break
-
-            elif user_input in negative_options:
-                raise ValueError("Supply the correct episode number to start experiment")
-            else:
-                trials += 1
-                print("Wrong Value Supplied")
-                print(f"You have {3 - trials} left")
-                if trials == 3:
-                    raise ValueError("Supply the correct answer to the question")
-
-
-def load_model(config):
-    """
-    Loads the model
-    Args:
-        config - global config
-        **************************************************
-        Note: The episode key in the experiment dict
-        implies the checkpoint that should be loaded
-        when the model resumes training. If episode is
-        -1, then the latest model is loaded else it loads
-        the checkpoint at the supplied episode
-        *************************************************
-    Returns:
-        leo :loaded model that was saved
-        optimizer: loaded weights of optimizer
-        stats: stats for the last saved model
-    """
-    experiment = config.experiment
-    model_dir = os.path.join(config.data_path, "models", "experiment_{}" \
-                             .format(experiment.number))
-
-    checkpoints = os.listdir(model_dir)
-    checkpoints = [i for i in checkpoints if os.path.splitext(i)[-1] == ".tar"]
-    max_cp = max([int(cp.split(".")[0].split("_")[1]) for cp in checkpoints])
-    # if experiment.episode == -1, load latest checkpoint
-    episode = max_cp if experiment.episode == -1 else experiment.episode
-    checkpoint_path = os.path.join(model_dir, f"checkpoint_{episode}.pth.tar")
-    checkpoint = torch.load(checkpoint_path)
-
-    log_filename = os.path.join(model_dir, "model_log.txt")
-    msg = f"\n*********** checkpoint {episode} was loaded **************"
-    log_data(msg, log_filename)
-
-    leo = LEO(config)
-    optimizer = torch.optim.Adam(leo.parameters(), lr=config.hyperparameters.outer_loop_lr)
-    leo.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    mode = checkpoint['mode']
-    total_val_loss = checkpoint['total_val_loss']
-    kl_loss = checkpoint['kl_loss']
-
-    stats = {
-        "mode": mode,
-        "episode": episode,
-        "kl_loss": kl_loss,
-        "total_val_loss": total_val_loss
-    }
-
-    return leo, optimizer, stats
-
-def get_in_sequence(data):
-    """
-    converts the tensor data (num_class, num_eg_per_class, img_dim) to ( (num_class * num_eg_per_class), img_dim)
-    Args:
-        data (tensor): (num_class, num_eg_per_class, H, W) # currently channel is missing
-    Returns:
-        data (tensor): (total_num_eg, Channel, H, W)
-    """
-    dim_list = list(data.size())
-    data = data.permute(1, 0, 4, 2, 3)
-    data = data.contiguous().view(dim_list[4], dim_list[2], dim_list[3], -1)
-    data = data.permute(3, 0, 1, 2)
-    #data = data.unsqueeze(1)  # because in the sample_data num_channels is missing
-    return data
-
-def get_named_dict(metadata, batch):
-    """Returns a named dict"""
-    tr_data, tr_data_masks, val_data, val_masks, classes = metadata
-    print(classes)
-    data_dict = {'tr_data_orig': tr_data[batch],
-                 'tr_data': get_in_sequence(tr_data[batch]),
-                 'tr_data_masks': tr_data_masks[batch],
-                 'val_data_orig': val_data[batch],
-                 'val_data': get_in_sequence(val_data[batch]),
-                 'val_data_masks': val_masks[batch]}
-    return edict(data_dict)
-
-
-def display_data_shape(metadata):
-    """Displays data shape"""
-    tr_data, tr_data_masks, val_data, val_masks = metadata[0:4]
-    print("tr_data shape: {},tr_data_masks shape: {}, val_data shape: {},val_masks shape: {}". \
-          format(tr_data.size(), tr_data_masks.size(), val_data.size(), val_masks.size()))
-    print(f"num tasks: {len(tr_data)}")
-
-
-def log_data(msg, log_filename):
-    """Log data to a file"""
-    if os.path.exists(log_filename):
-        mode_ = "a"
-    else:
-        mode_ = "w"
-    with open(log_filename, mode_) as f:
-        f.write(msg)
+        print(variable_to_print)
+    sys.stdout = previous_stdout
+    string_value = string_buffer.getvalue()
+    return string_value
