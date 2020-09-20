@@ -1,12 +1,27 @@
 import torch
 import torch.optim as optim
-import os, sys, pprint, pickle, json, random, tensorflow as tf
+import os, sys, pprint, pickle, json, random, yaml, torchvision, \
+    logging, logging.config, tensorflow as tf
 import numpy as np
-import torchvision
 from PIL import Image
 from matplotlib import pyplot as plt
 from easydict import EasyDict as edict
 from io import StringIO
+
+def loggers():
+    """Returns train and validation loggers"""
+    config = load_config()
+    experiment = config.experiment
+    model_root = os.path.join(os.path.dirname(__file__), config.data_path, "models")
+    model_dir = os.path.join(model_root, "experiment_{}" \
+                                .format(experiment.number))
+    config_dict = load_yaml('leo_segmentation/data/logging.yaml')
+    config_dict["handlers"]["trainStatsHandler"]["filename"] = os.path.join(model_dir, "train_log.txt")
+    config_dict["handlers"]["valStatsHandler"]["filename"] = os.path.join(model_dir, "val_log.txt")
+    logging.config.dictConfig(config_dict)
+    train_logger = logging.getLogger("train")
+    val_logger = logging.getLogger("val")
+    return train_logger, val_logger
 
 def load_config(config_path:str = "leo_segmentation/data/config.json"):
     """Loads config file"""
@@ -81,6 +96,11 @@ def load_pickled_data(data_path):
         data = pickle.load(f)
     return data
 
+def load_yaml(data_path):
+    """Reads a yaml file"""
+    with open(data_path, 'r') as stream:
+        return  yaml.load(stream, Loader=yaml.FullLoader)
+
 def list_to_tensor(_list, image_transformer):
     """Converts list of paths to pytorch tensor"""
     if type(_list[0]) == list:
@@ -88,6 +108,7 @@ def list_to_tensor(_list, image_transformer):
     else:
         return np.expand_dims(image_transformer(Image.open(_list)), 0)
 
+train_logger, val_logger = loggers()
 #TO-DO Modify for tensorflow
 #Currently create log returns None
 #Create log truncates function
@@ -107,12 +128,12 @@ def check_experiment(config):
     def create_log():
         if not os.path.exists(model_dir):
             os.makedirs(model_dir, exist_ok=True)
-        msg = f"*********************Experiment {experiment.number}********************\n"
-        msg += f"Description: {experiment.description}"
+        msg = f"********************* Experiment {experiment.number} *********************\n"
+        msg += f"Description: {experiment.description}\n"
         log_filename = os.path.join(model_dir, "train_log.txt")
         log_data(msg, log_filename, overwrite=True)
         log_filename = os.path.join(model_dir, "val_log.txt")
-        msg = "******************* Val stats *************\n"
+        msg = "********************* Val stats *********************\n"
         log_data(msg, log_filename, overwrite=True)
         return None
 
@@ -216,7 +237,7 @@ def print_to_string_io(variable_to_print, pretty_print=True):
     """ Prints value to string_io and returns value"""
     previous_stdout = sys.stdout
     sys.stdout = string_buffer = StringIO()
-    pp = pprint.PrettyPrinter(indent=4)
+    pp = pprint.PrettyPrinter(indent=0)
     if pretty_print:
         pp.pprint(variable_to_print)
     else:

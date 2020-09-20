@@ -1,4 +1,5 @@
-from .utils import meta_classes_selector, print_to_string_io
+from .utils import meta_classes_selector, print_to_string_io, \
+    train_logger, val_logger
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, utils, datasets
 from PIL import Image
@@ -165,7 +166,14 @@ class TrainingStats():
             "total_val_loss": self.total_val_loss,
             "mean_iou_dict":self.mean_iou_dict
         })
-        self.log_model_stats_to_file()
+        mean_iou_string = print_to_string_io(self.mean_iou_dict, pretty_print=True)
+        msg = f"mode:{self.mode}, episode:{self.episode:03d}, kl_loss:{self.kl_loss:2f}, " 
+        msg += f"total_val_loss:{self.total_val_loss:2f} \nval_mean_iou:{mean_iou_string}"
+        self.stats_msg = msg
+        if self.mode == "meta_train":
+            train_logger.debug(self.stats_msg)
+        else:
+            val_logger.debug(self.stats_msg)
 
     def update_inner_loop_stats(self, **kwargs):
         pass
@@ -179,21 +187,6 @@ class TrainingStats():
     def get_latest_stats(self):
         return self._stats[-1]
 
-    def log_inner_loop_stats_to_file(self):
-        pass
-    
-    def log_model_stats_to_file(self):
-        model_root = os.path.join(os.path.dirname(__file__), self.config.data_path, "models")
-        model_dir  = os.path.join(model_root, "experiment_{}"\
-                    .format(self.config.experiment.number))
-        log_file = "train_log.txt" if self.mode == "meta_train" else "val_log.txt"
-
-        with open(os.path.join(model_dir, log_file), "a") as f:
-            mean_iou_string = print_to_string_io(self.mean_iou_dict, pretty_print=True)
-            msg = f"\nmode:{self.mode}, episode:{self.episode:03d}, kl_loss:{self.kl_loss:2f}, " 
-            msg += f"total_val_loss:{self.total_val_loss:2f} \nval_mean_iou:{mean_iou_string}"
-            f.write(msg)
-   
     def get_stats(self):
         return pd.DataFrame(self._stats)
 
@@ -201,7 +194,4 @@ class TrainingStats():
         return self._stats[-1]
 
     def disp_stats(self):
-        mean_iou_string = print_to_string_io(self.mean_iou_dict, pretty_print=True)
-        msg = f"\nmode:{self.mode}, episode:{self.episode:03d}, kl_loss:{self.kl_loss:2f}, " 
-        msg += f"total_{self.mode}_loss:{self.total_val_loss:2f} \nval_mean_iou:{mean_iou_string}"
-        print(msg)
+        print(self.stats_msg)

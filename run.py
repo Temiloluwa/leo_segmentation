@@ -1,7 +1,8 @@
 from leo_segmentation.data import Datagenerator, TrainingStats
 from leo_segmentation.model import LEO, load_model, save_model
 from leo_segmentation.utils import load_config, check_experiment, get_named_dict, \
-                        log_data
+                        log_data, load_yaml, train_logger, val_logger, print_to_string_io, \
+                        save_pickled_data
 from easydict import EasyDict as edict
 from torch.utils.tensorboard import SummaryWriter
 from IPython import get_ipython
@@ -32,7 +33,7 @@ def load_model_and_params(config):
 
 def train_model(config):
     """Trains Model"""
-    #writer = SummaryWriter(os.path.join(config.data_path, "models", str(config.experiment.number)))
+    #writer = SummaryWriter(os.path.join(config.data_path, "models", str(config.experiment.number)))    
     if check_experiment(config):
         leo, optimizer, train_stats = load_model_and_params(config)
     else:
@@ -42,10 +43,9 @@ def train_model(config):
         train_stats = TrainingStats(config)
         tf.keras.backend.clear_session()
 
-    model_root = os.path.join(os.path.dirname(__file__), "leo_segmentation", config.data_path, "models")
-    log_file  = os.path.join(model_root, "experiment_{}".format(config.experiment.number), "val_log.txt")
     episodes = config.hyperparameters.episodes
     episode_times = []
+    train_logger.debug(f"Start time")
     for episode in range(episodes_completed+1, episodes+1):
         start_time = time.time()
         train_stats.set_episode(episode)
@@ -56,28 +56,27 @@ def train_model(config):
         transformers = (img_transformer, mask_transformer) 
         metadata = dataloader.get_batch_data()
         _, train_stats = leo.compute_loss(metadata, train_stats, transformers)
+
         if episode % config.checkpoint_interval == 0:
+            #save model
             pass
-            #save_model(leo, optimizer, config, edict(train_stats.get_latest_stats()))
-            #writer.add_graph(leo, metadata[:-1])
-            #writer.close()
-          
-        dataloader = Datagenerator(config, dataset, data_type="meta_val")
-        train_stats.set_mode("meta_val")
-        metadata = dataloader.get_batch_data()
-        _, train_stats = leo.compute_loss(metadata, train_stats, transformers, mode="meta_val")
-        train_stats.disp_stats()
-        episode_time = (time.time() - start_time)/60
-        log_msg = f"Episode: {episode}, Episode Time: {episode_time:0.03f} minutes\n"
-        print(log_msg)
-        log_data(log_msg, log_file)
-        episode_times.append(episode_time)
-        model_and_params = leo, None, train_stats 
-        leo = predict_model(config, dataset, model_and_params, transformers)
     
-    log_msg = f"Total Model Training Time {np.sum(episode_times):0.03f} minutes\n"
-    print(log_msg)
-    log_data(log_msg, log_file)
+        if episode % config.meta_val_interval == 0:
+            dataloader = Datagenerator(config, dataset, data_type="meta_val")
+            train_stats.set_mode("meta_val")
+            metadata = dataloader.get_batch_data()
+            _, train_stats = leo.compute_loss(metadata, train_stats, transformers, mode="meta_val")
+            train_stats.disp_stats()
+        episode_time = (time.time() - start_time)/60
+        log_msg = print_to_string_io(f"Episode: {episode}, Episode Time: {episode_time:0.03f} minutes", False)
+        train_logger.debug(log_msg)
+        episode_times.append(episode_time)
+
+    model_and_params = leo, None, train_stats 
+    leo = predict_model(config, dataset, model_and_params, transformers)
+    log_msg = print_to_string_io(f"Total Model Training Time {np.sum(episode_times):0.03f} minutes", False)
+    train_logger.debug(log_msg)
+    train_logger.debug(f"End time")
     return leo
 
 def predict_model(config, dataset, model_and_params, transformers):
@@ -88,6 +87,14 @@ def predict_model(config, dataset, model_and_params, transformers):
     metadata = dataloader.get_batch_data()
     _, train_stats = leo.compute_loss(metadata, train_stats, transformers, mode="meta_test")
     train_stats.disp_stats()
+    stats_df = train_stats.get_stats()
+    experiment = config.experiment
+    model_root = os.path.join(os.path.dirname(__file__), "leo_segmentation", config.data_path, "models")
+    model_dir = os.path.join(model_root, "experiment_{}".format(experiment.number))
+    stats_df.to_pickle(os.path.join(model_dir, f"experiment_{experiment.number}_stats.pkl"))
+    train_logger.debug("************** Config Used ************")
+    msg = print_to_string_io(config, True)
+    train_logger.debug(msg)
     return leo
 
 def main():

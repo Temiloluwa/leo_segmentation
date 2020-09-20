@@ -3,6 +3,7 @@
     "use_gpu":true,
     "checkpoint_interval":120,
     "display_stats_interval":120,
+    "meta_val_interval":2,
     "dtype":"float32",
     "data_path":"data",
     "datasets":["pascal_voc", "sample_data", "fss1000", "pascal_voc_raw"],
@@ -24,6 +25,6 @@
         "num_latents":50,
         "num_finetuning_steps":5,
         "num_adaptation_steps":5,
-        "episodes":100
+        "episodes":2
     }
 }
