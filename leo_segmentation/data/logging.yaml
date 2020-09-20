@@ -1,0 +1,25 @@
+version: 1
+formatters:
+  stats:
+    format: '%(asctime)s - %(message)s'
+    datefmt: '%Y-%m-%d %H:%M:%S'
+handlers:
+  trainStatsHandler:
+    class: logging.FileHandler
+    level: DEBUG
+    formatter: stats
+    filename: "train_log.txt"
+  valStatsHandler:
+    class: logging.FileHandler
+    level: DEBUG
+    formatter: stats
+    filename: "val_log.txt"
+loggers:
+  train:
+    level: DEBUG
+    handlers: [trainStatsHandler]
+    propagate: no
+  val:
+    level: DEBUG
+    handlers: [valStatsHandler]
+    propagate: no
