@@ -108,7 +108,6 @@ def list_to_tensor(_list, image_transformer):
     else:
         return np.expand_dims(image_transformer(Image.open(_list)), 0)
 
-train_logger, val_logger = loggers()
 #TO-DO Modify for tensorflow
 #Currently create log returns None
 #Create log truncates function
@@ -245,3 +244,5 @@ def print_to_string_io(variable_to_print, pretty_print=True):
     sys.stdout = previous_stdout
     string_value = string_buffer.getvalue()
     return string_value
+
+train_logger, val_logger = loggers()

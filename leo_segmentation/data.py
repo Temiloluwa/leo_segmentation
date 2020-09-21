@@ -73,6 +73,12 @@ class Datagenerator(Dataset):
         
         if batch_size > len(classes):
             raise ValueError("number of tasks must be less than the number of available classes")
+        
+        def data_path_assertions(data_path, img_or_mask):
+            temp = data_path.split(os.sep)
+            _img_or_mask, _selected_class = temp[-3], temp[-2]
+            assert _img_or_mask == img_or_mask, "wrong data type (image or mask)"
+            assert _selected_class == selected_class, "wrong class (selected class)"
 
         tr_imgs = []
         tr_masks = []
@@ -89,12 +95,6 @@ class Datagenerator(Dataset):
             val_img_paths = []
             val_masks_paths = []
 
-            def data_path_assertions(data_path, img_or_mask):
-                temp = data_path.split(os.sep)
-                _img_or_mask, _selected_class = temp[-3], temp[-2]
-                assert _img_or_mask == img_or_mask, "wrong data type (image or mask)"
-                assert _selected_class == selected_class, "wrong class (selected class)"
-            
             img_paths = [i[0] for i in img_datasets.imgs if selected_class in i[0]]
             random.shuffle(img_paths)
             if self._data_type == "meta_train":
@@ -126,16 +126,14 @@ class Datagenerator(Dataset):
         total_tr_img_paths = tr_imgs + tr_masks
         total_vl_img_paths = val_imgs + val_masks
         if self._data_type == "meta_train": 
-            tr_data, tr_data_masks, val_data, val_masks = np.array(tr_imgs),\
-                                                        np.array(tr_masks),\
-                                                        np.array(val_imgs), \
-                                                        np.array(val_masks)
+            tr_data, tr_data_masks, val_data, val_masks = np.array(tr_imgs), np.array(tr_masks),\
+                                                        np.array(val_imgs), np.array(val_masks)
             return tr_data, tr_data_masks, val_data, val_masks, \
-                classes_selected, total_tr_img_paths, total_vl_img_paths
+                    classes_selected, total_tr_img_paths, total_vl_img_paths
         else:
             tr_data, tr_data_masks = np.array(tr_imgs), np.array(tr_masks)
             return tr_data, tr_data_masks, val_imgs, val_masks, \
-                classes_selected, total_tr_img_paths, total_vl_img_paths
+                    classes_selected, total_tr_img_paths, total_vl_img_paths
 
     def get_batch_data(self):
         return self.__getitem__(0)
@@ -175,23 +173,14 @@ class TrainingStats():
         else:
             val_logger.debug(self.stats_msg)
 
-    def update_inner_loop_stats(self, **kwargs):
-        pass
-
     def reset_stats(self):
         self._stats = []
 
-    def get_stats(self):
-        return pd.DataFrame(self._stats)
-
     def get_latest_stats(self):
         return self._stats[-1]
 
     def get_stats(self):
         return pd.DataFrame(self._stats)
-
-    def get_latest_stats(self):
-        return self._stats[-1]
 
     def disp_stats(self):
         print(self.stats_msg)
