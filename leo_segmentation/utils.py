@@ -8,21 +8,6 @@ from matplotlib import pyplot as plt
 from easydict import EasyDict as edict
 from io import StringIO
 
-def loggers():
-    """Returns train and validation loggers"""
-    config = load_config()
-    experiment = config.experiment
-    model_root = os.path.join(os.path.dirname(__file__), config.data_path, "models")
-    model_dir = os.path.join(model_root, "experiment_{}" \
-                                .format(experiment.number))
-    config_dict = load_yaml('leo_segmentation/data/logging.yaml')
-    config_dict["handlers"]["trainStatsHandler"]["filename"] = os.path.join(model_dir, "train_log.txt")
-    config_dict["handlers"]["valStatsHandler"]["filename"] = os.path.join(model_dir, "val_log.txt")
-    logging.config.dictConfig(config_dict)
-    train_logger = logging.getLogger("train")
-    val_logger = logging.getLogger("val")
-    return train_logger, val_logger
-
 def load_config(config_path:str = "leo_segmentation/data/config.json"):
     """Loads config file"""
     with open(config_path, "r") as f:
@@ -98,8 +83,8 @@ def load_pickled_data(data_path):
 
 def load_yaml(data_path):
     """Reads a yaml file"""
-    with open(data_path, 'r') as stream:
-        return  yaml.load(stream, Loader=yaml.FullLoader)
+    with open(data_path, 'r') as f:
+        return  yaml.safe_load(f)
 
 def list_to_tensor(_list, image_transformer):
     """Converts list of paths to pytorch tensor"""
@@ -108,9 +93,35 @@ def list_to_tensor(_list, image_transformer):
     else:
         return np.expand_dims(image_transformer(Image.open(_list)), 0)
 
-#TO-DO Modify for tensorflow
-#Currently create log returns None
-#Create log truncates function
+def create_log(config):
+    """ Create Log File """
+    experiment = config.experiment
+    if not os.path.exists(model_dir):
+        os.makedirs(model_dir, exist_ok=True)
+    msg = f"********************* Experiment {experiment.number} *********************\n"
+    msg += f"Description: {experiment.description}\n"
+    log_filename = os.path.join(model_dir, "train_log.txt")
+    log_data(msg, log_filename, overwrite=True)
+    log_filename = os.path.join(model_dir, "val_log.txt")
+    msg = "********************* Val stats *********************\n"
+    log_data(msg, log_filename, overwrite=True)
+    return None
+
+def loggers(config):
+    """Returns train and validation loggers"""
+    experiment = config.experiment
+    model_root = os.path.join(os.path.dirname(__file__), config.data_path, "models")
+    model_dir = os.path.join(model_root, "experiment_{}" \
+                                .format(experiment.number))
+    config_dict = load_yaml('leo_segmentation/data/logging.yaml')
+    create_log(config)
+    config_dict["handlers"]["trainStatsHandler"]["filename"] = os.path.join(model_dir, "train_log.txt")
+    config_dict["handlers"]["valStatsHandler"]["filename"] = os.path.join(model_dir, "val_log.txt")
+    logging.config.dictConfig(config_dict)
+    train_logger = logging.getLogger("train")
+    val_logger = logging.getLogger("val")
+    return train_logger, val_logger
+
 def check_experiment(config):
     """
     Checks if the experiment is new or not
@@ -120,42 +131,8 @@ def check_experiment(config):
     Returns:
         Bool
     """
-    experiment = config.experiment
-    model_root = os.path.join(os.path.dirname(__file__), config.data_path, "models")
-    model_dir = os.path.join(model_root, "experiment_{}" \
-                             .format(experiment.number))
-    def create_log():
-        if not os.path.exists(model_dir):
-            os.makedirs(model_dir, exist_ok=True)
-        msg = f"********************* Experiment {experiment.number} *********************\n"
-        msg += f"Description: {experiment.description}\n"
-        log_filename = os.path.join(model_dir, "train_log.txt")
-        log_data(msg, log_filename, overwrite=True)
-        log_filename = os.path.join(model_dir, "val_log.txt")
-        msg = "********************* Val stats *********************\n"
-        log_data(msg, log_filename, overwrite=True)
-        return None
-
-    return create_log()
-
-    if not os.path.exists(model_root):
-        os.makedirs(model_root, exist_ok=True)
-    existing_models = os.listdir(model_root)
-    checkpoint_paths = os.path.join(model_root, f"experiment_{experiment.number}")
-    if not os.path.exists(checkpoint_paths):
-        create_log()
-        return None
-    existing_checkpoints = os.listdir(checkpoint_paths)
-
-    if f"experiment_{experiment.number}" in existing_models and \
-        f"checkpoint_{experiment.episode}.pth.tar" in existing_checkpoints:
-            return True
-    elif f"experiment_{experiment.number}" in existing_models and \
-        experiment.episode == -1:
-            return True
-    else:
-        create_log()
-        return None
+    # implement logic to confirm if an experiment already exists
+    return None
 
 def get_named_dict(metadata, batch):
     """Returns a named dict"""
@@ -208,30 +185,6 @@ def plot_masks(mask_data, ground_truth=False):
     else:
         plt.imshow(np.mean(mask_data.numpy())/2 + 0.5, cmap="gray")
 
-
-def summary_write_masks(batch_data, writer, grid_title, ground_truth=False):
-    """
-    Summary writer creates image grid for tensorboard
-    Args:
-        batch_data(torch.Tensor) - mask data
-        writer - Tensorboard summary writer
-        grid_title(str) - title of mask grid
-        ground_truth(bool) - True if mask is a groundtruth else it is a prediction
-
-    """
-    if ground_truth:
-        batch_data = torch.unsqueeze(batch_data, 1)
-        masks_grid = torchvision.utils.make_grid(batch_data)
-        episode = int(grid_title.split("_")[2])
-        #plot_masks(masks_grid, ground_truth=True)
-    else:
-        batch_data = torch.unsqueeze(torch.argmax(batch_data, dim=1), 1)
-        masks_grid = torchvision.utils.make_grid(batch_data)
-        episode = int(grid_title.split("_")[1])
-        #plot_masks(masks_grid)
-
-    writer.add_image(grid_title, masks_grid, episode)
-
 def print_to_string_io(variable_to_print, pretty_print=True):
     """ Prints value to string_io and returns value"""
     previous_stdout = sys.stdout
@@ -245,4 +198,9 @@ def print_to_string_io(variable_to_print, pretty_print=True):
     string_value = string_buffer.getvalue()
     return string_value
 
-train_logger, val_logger = loggers()
+if os.getcwd().split(os.sep)[-1] != "leo_segmentation":
+    raise ValueError("Ensure your working directory is leo_segmentation")
+config = load_config()
+model_root = os.path.join(os.getcwd(), "leo_segmentation", config.data_path, "models")
+model_dir = os.path.join(model_root, "experiment_{}".format(config.experiment.number))
+train_logger, val_logger = loggers(config)

@@ -2,7 +2,7 @@ from leo_segmentation.data import Datagenerator, TrainingStats
 from leo_segmentation.model import LEO, load_model, save_model
 from leo_segmentation.utils import load_config, check_experiment, get_named_dict, \
                         log_data, load_yaml, train_logger, val_logger, print_to_string_io, \
-                        save_pickled_data
+                        save_pickled_data, model_dir
 from easydict import EasyDict as edict
 from torch.utils.tensorboard import SummaryWriter
 from IPython import get_ipython
@@ -89,12 +89,10 @@ def predict_model(config, dataset, model_and_params, transformers):
     train_stats.disp_stats()
     stats_df = train_stats.get_stats()
     experiment = config.experiment
-    model_root = os.path.join(os.path.dirname(__file__), "leo_segmentation", config.data_path, "models")
-    model_dir = os.path.join(model_root, "experiment_{}".format(experiment.number))
     stats_df.to_pickle(os.path.join(model_dir, f"experiment_{experiment.number}_stats.pkl"))
-    train_logger.debug("************** Config Used ************")
-    msg = print_to_string_io(config, True)
-    train_logger.debug(msg)
+    log_data("************** Hyperparameters Used ************\n", os.path.join(model_dir, "train_log.txt"))
+    msg = print_to_string_io(config.hyperparameters, True)
+    log_data(msg, os.path.join(model_dir, "train_log.txt"))
     return leo
 
 def main():

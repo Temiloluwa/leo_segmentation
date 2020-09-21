@@ -2,7 +2,7 @@ import os, torch, numpy as np
 import tensorflow as tf
 from tqdm import tqdm
 from .utils import display_data_shape, get_named_dict, calc_iou_per_class,\
-    log_data, load_config, summary_write_masks, list_to_tensor
+    log_data, load_config, list_to_tensor, model_dir
 
 def mobilenet_v2_encoder(img_dims):
     """ Initialize the encoder using weights from mobilenetv2"""
@@ -312,11 +312,6 @@ def save_model(model, optimizer, config, stats):
         'total_val_loss': stats.total_val_loss
     }
 
-    experiment = config.experiment
-    model_root = os.path.join(config.data_path, "models")
-    model_dir = os.path.join(model_root, "experiment_{}" \
-                             .format(experiment.number))
-
     checkpoint_path = os.path.join(model_dir, f"checkpoint_{stats.episode}.pth.tar")
     if not os.path.exists(checkpoint_path):
         torch.save(data_to_save, checkpoint_path)
@@ -369,10 +364,6 @@ def load_model(config):
         optimizer: loaded weights of optimizer
         stats: stats for the last saved model
     """
-    experiment = config.experiment
-    model_dir  = os.path.join(config.data_path, "models", "experiment_{}"\
-                 .format(experiment.number))
-    
     checkpoints = os.listdir(model_dir)
     checkpoints = [i for i in checkpoints if os.path.splitext(i)[-1] == ".tar"]
     max_cp = max([int(cp.split(".")[0].split("_")[1]) for cp in checkpoints])
