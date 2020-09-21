@@ -1,31 +1,30 @@
 {
     "train":true,
-    "use_gpu":true,
-    "checkpoint_interval":1,
+    "use_gpu":false,
+    "checkpoint_interval":50,
+    "display_stats_interval":100,
+    "validation_step":20,
     "dtype":"float32",
     "data_path":"data",
-    "datasets":["pascal_voc", "sample_data", "fss1000"],
-	"kl_weight":0.001,
-    "data_params":{
+    "datasets":["pascal_voc", "sample_data", "fss1000", "pascal_voc_raw"],
+	"data_params":{
         "num_classes":1,
-        "meta_train_val_test_ratio":[3,2,2],
+        "img_dims":{"channels":3, "height":384, "width": 512},
+        "meta_class_splits":{"meta_train":[0, 10], "meta_val":[10, 15], "meta_test":[15,20]},
         "n_train_per_class":{"meta_train":2, "meta_val":2, "meta_test":2},
-        "n_val_per_class":{"meta_train":2, "meta_val":2, "meta_test":2},
-        "num_tasks":{"meta_train":2, "meta_val":2, "meta_test":2}
+        "n_val_per_class":{"meta_train":2, "meta_val":5, "meta_test":20},
+        "num_tasks":{"meta_train":7, "meta_val":5, "meta_test":5}
     },
-<<<<<<< HEAD
-    "experiment":{"number":13, "episode":1, "description":"gopika integration", "prompt_deletion":false},
-=======
-    "experiment":{"number":2, "episode":1, "description":"first_model", "prompt_deletion":false},
->>>>>>> 9cf2f53... LEO for Segmentation for Pascal VOC
+    "experiment":{"number":1, "episode":1, "description":"using_new_embeddings", "prompt_deletion":false},
     "hyperparameters":{
-        "outer_loop_lr":1e-3,
-        "inner_loop_lr":1e-3,
-        "finetuning_lr":1e-3,
+        "outer_loop_lr":1e-4,
+        "inner_loop_lr":1e-4,
+        "finetuning_lr":1e-4,
         "dropout_rate":0.2,
-        "num_latents":5,
-        "num_finetuning_steps":2,
+        "kl_weight":0.5,
+        "num_latents":50,
+        "num_finetuning_steps":5,
         "num_adaptation_steps":5,
-        "episodes":3
+        "episodes":151
     }
 }

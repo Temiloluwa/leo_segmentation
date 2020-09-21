@@ -6,7 +6,7 @@ from torch.nn import MSELoss
 from easydict import EasyDict as edict
 from torch.utils.tensorboard import SummaryWriter
 from data import Datagenerator, TrainingStats
-from model import LEO, load_model, save_model
+from model_combined2 import LEO, load_model, save_model
 from utils import load_config, check_experiment, get_named_dict, log_data
 
 try:
@@ -33,17 +33,17 @@ def load_model_and_params(config, device):
 
 def train_model(config):
     """Trains Model"""
-    # writer = SummaryWriter(os.path.join(config.data_path, "models", str(config.experiment.number)))
+    writer = SummaryWriter(os.path.join(config.data_path, "models", str(config.experiment.number)))
     device = torch.device("cuda:0" if torch.cuda.is_available() and config.use_gpu else "cpu")
     if check_experiment(config):
         leo, optimizer, train_stats = load_model_and_params(config, device)
     else:
-        leo = LEO(config).to(device)
+        leo = LEO(config, writer).to(device)
         train_stats = TrainingStats(config)
         episodes_completed = 0
         optimizer = torch.optim.Adam(leo.parameters(), lr=config.hyperparameters.outer_loop_lr)
 
-    model_root = os.path.join(os.path.dirname(__file__), "leo_segmentation", config.data_path, "models")
+    model_root = os.path.join(os.path.dirname(__file__), config.data_path, "models")
     log_file = os.path.join(model_root, "experiment_{}".format(config.experiment.number), "val_log.txt")
     total_episodes = config.hyperparameters.episodes
     episode_times = []
@@ -62,18 +62,17 @@ def train_model(config):
             save_model(leo, optimizer, config, edict(train_stats.get_latest_stats()))
             # writer.add_graph(leo, metadata[:-1])
             # writer.close()
-        """
-        dataloader = Datagenerator(config, dataset, data_type="meta_val")
-        train_stats.set_mode("meta_val")
-        metadata = dataloader.get_batch_data()
-        _, train_stats, _ = leo.compute_loss(metadata, train_stats, mode="meta_val")
-        train_stats.disp_stats()
+        if episode % config.validation_step == 0:
+            dataloader = Datagenerator(config, dataset, data_type="meta_val")
+            train_stats.set_mode("meta_val")
+            metadata = dataloader.get_batch_data()
+            _, train_stats, _ = leo.compute_loss(metadata, train_stats, mode="meta_val")
+            train_stats.disp_stats()
         episode_time = (time.time() - start_time) / 60
         log_msg = f"Episode: {episode}, Episode Time: {episode_time:0.03f} minutes\n"
         print(log_msg)
         log_data(log_msg, log_file)
         episode_times.append(episode_time)
-        """
         if episode != total_episodes:
             del metadata
             gc.collect()
