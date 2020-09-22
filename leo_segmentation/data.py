@@ -161,13 +161,14 @@ class TrainingStats():
     def update_stats(self, **kwargs):
         self.kl_loss = kwargs["kl_loss"]
         self.total_val_loss = kwargs["total_val_loss"]
-        self.mean_iou_dict =  kwargs["mean_iou_dict"]
+        self.mean_iou_dict =  kwargs["mean_iou_dict"] 
+        self.mean_iou_dict["episode"] = self.episode
+        
         _stats = {
             "mode": self.mode,
             "episode": self.episode,
             "kl_loss": self.kl_loss,
             "total_val_loss": self.total_val_loss,
-            "mean_iou_dict":self.mean_iou_dict
         }
 
         if self.mode == "meta_train":
