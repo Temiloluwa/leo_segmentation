@@ -84,9 +84,10 @@ class LEO:
     """
     def __init__(self, config, mode="meta_train"):
         super(LEO, self).__init__()
+        img_dims = config.data_params.img_dims
         self.config = config
         self.mode = mode
-        self.img_dims = (3, 384, 512)
+        self.img_dims = (img_dims.channels, img_dims.height, img_dims.width)
         self.encoder = mobilenet_v2_encoder(self.img_dims)
         self.decoder = Decoder()
         self.optimizer = tf.keras.optimizers.Adam(1e-4)

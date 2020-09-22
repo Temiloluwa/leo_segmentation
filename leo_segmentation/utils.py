@@ -197,6 +197,6 @@ def print_to_string_io(variable_to_print, pretty_print=True):
 
 project_root = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 config = load_config()
-model_root = os.path.join(project_root, "leo_segmenation", config.data_path, "models")
+model_root = os.path.join(project_root, "leo_segmentation", config.data_path, "models")
 model_dir = os.path.join(model_root, "experiment_{}".format(config.experiment.number))
 train_logger, val_logger = loggers(config)
