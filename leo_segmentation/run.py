@@ -1,14 +1,12 @@
+import sys, os, argparse, time, numpy as np, tensorflow as tf
+sys.path.append(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 from leo_segmentation.data import Datagenerator, TrainingStats
 from leo_segmentation.model import LEO, load_model, save_model
 from leo_segmentation.utils import load_config, check_experiment, get_named_dict, \
                         log_data, load_yaml, train_logger, val_logger, print_to_string_io, \
                         save_pickled_data, model_dir
 from easydict import EasyDict as edict
-from torch.utils.tensorboard import SummaryWriter
 from IPython import get_ipython
-import numpy as np
-import tensorflow as tf
-import os, argparse, time
 
 try:
     shell = get_ipython().__class__.__name__
@@ -33,7 +31,6 @@ def load_model_and_params(config):
 
 def train_model(config):
     """Trains Model"""
-    #writer = SummaryWriter(os.path.join(config.data_path, "models", str(config.experiment.number)))    
     if check_experiment(config):
         leo, optimizer, train_stats = load_model_and_params(config)
     else:
