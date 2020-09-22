@@ -10,12 +10,14 @@ from IPython import get_ipython
 
 try:
     shell = get_ipython().__class__.__name__
+    if shell == "NoneType":
+        raise NameError("Move to except branch")
     dataset = "pascal_voc_raw"
 except NameError:
     parser = argparse.ArgumentParser(description='Specify train or inference dataset')
     parser.add_argument("-d", "--dataset", type=str, nargs=1, default="pascal_voc_raw")
     args = parser.parse_args()
-    dataset = args.dataset
+    dataset = args.dataset[0]
 
 #TO-DO change to tensorflow
 def load_model_and_params(config):

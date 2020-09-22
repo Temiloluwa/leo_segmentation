@@ -78,7 +78,7 @@ class Datagenerator(Dataset):
             temp = data_path.split(os.sep)
             _img_or_mask, _selected_class = temp[-3], temp[-2]
             assert _img_or_mask == img_or_mask, "wrong data type (image or mask)"
-            assert _selected_class == selected_class, "wrong class (selected class)"
+            #assert _selected_class == selected_class, "wrong class (selected class)"
 
         tr_imgs = []
         tr_masks = []
@@ -89,7 +89,7 @@ class Datagenerator(Dataset):
         for i in range(batch_size): 
             selected_class = (np.random.choice(classes, num_classes, replace=False))[0]
             classes_selected.append(selected_class)
-            classes = list(set(classes) - set([selected_class]))
+            classes.remove(selected_class)
             tr_img_paths = []
             tr_masks_paths = []
             val_img_paths = []
@@ -104,6 +104,8 @@ class Datagenerator(Dataset):
                 data_path_assertions(img_path, "images")
 
             mask_paths = [i.replace("images", "masks") for i in img_paths]
+            mask_paths = [i.replace("jpg", "png") if not os.path.exists(i) else i for i in mask_paths]
+            mask_paths = [i.replace("png", "jpg") if not os.path.exists(i) else i for i in mask_paths]
             #create a list in the case only one image path is created
             img_paths  = [img_paths] if type(img_paths) == str else img_paths
             mask_paths  = [mask_paths] if type(mask_paths) == str else mask_paths
