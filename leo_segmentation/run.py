@@ -12,7 +12,6 @@ try:
     shell = get_ipython().__class__.__name__
     if shell == "NoneType":
         raise NameError("Move to except branch")
-    dataset = "pascal_voc_raw"
 except NameError:
     parser = argparse.ArgumentParser(description='Specify train or inference dataset')
     parser.add_argument("-d", "--dataset", type=str, nargs=1, default="pascal_voc_raw")
