@@ -84,9 +84,12 @@ def predict_model(config, dataset, model_and_params, transformers):
     metadata = dataloader.get_batch_data()
     _, train_stats = leo.compute_loss(metadata, train_stats, transformers, mode="meta_test")
     train_stats.disp_stats()
-    stats_df = train_stats.get_stats()
     experiment = config.experiment
-    stats_df.to_pickle(os.path.join(model_dir, f"experiment_{experiment.number}_stats.pkl"))
+    for mode in ["meta_train", "meta_val", "meta_test"]:
+        stats_df = train_stats.get_stats(mode)
+        ious_df = train_stats.get_ious(mode)
+        stats_df.to_pickle(os.path.join(model_dir, f"experiment_{mode}_{experiment.number}_stats.pkl"))
+        ious_df.to_pickle(os.path.join(model_dir, f"experiment_{mode}_{experiment.number}_ious.pkl"))
     log_data("************** Hyperparameters Used ************\n", os.path.join(model_dir, "train_log.txt"))
     msg = print_to_string_io(config.hyperparameters, True)
     log_data(msg, os.path.join(model_dir, "train_log.txt"))

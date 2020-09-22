@@ -141,7 +141,12 @@ class Datagenerator(Dataset):
 class TrainingStats():
     """Stores train statistics data"""
     def __init__(self, config):
-        self._stats = []
+        self._meta_train_stats = []
+        self._meta_val_stats = []
+        self._meta_test_stats = []
+        self._meta_train_ious = []
+        self._meta_val_ious = []
+        self._meta_test_ious = []
         self.config = config
     
     def set_episode(self, episode):
@@ -157,13 +162,24 @@ class TrainingStats():
         self.kl_loss = kwargs["kl_loss"]
         self.total_val_loss = kwargs["total_val_loss"]
         self.mean_iou_dict =  kwargs["mean_iou_dict"]
-        self._stats.append({
+        _stats = {
             "mode": self.mode,
             "episode": self.episode,
             "kl_loss": self.kl_loss,
             "total_val_loss": self.total_val_loss,
             "mean_iou_dict":self.mean_iou_dict
-        })
+        }
+
+        if self.mode == "meta_train":
+            self._meta_train_stats.append(_stats)
+            self._meta_train_ious.append(self.mean_iou_dict)
+        elif self.mode == "meta_val":
+            self._meta_val_stats.append(_stats)
+            self._meta_val_ious.append(self.mean_iou_dict)
+        else:
+            self._meta_test_stats.append(_stats)
+            self._meta_test_ious.append(self.mean_iou_dict)
+
         mean_iou_string = print_to_string_io(self.mean_iou_dict, pretty_print=True)
         msg = f"mode:{self.mode}, episode:{self.episode:03d}, kl_loss:{self.kl_loss:2f}, " 
         msg += f"total_val_loss:{self.total_val_loss:2f} \nval_mean_iou:{mean_iou_string}"
@@ -173,14 +189,23 @@ class TrainingStats():
         else:
             val_logger.debug(self.stats_msg)
 
-    def reset_stats(self):
-        self._stats = []
+    def get_stats(self, mode):
+        if self.mode == "meta_train":
+            stats = self._meta_train_stats
+        elif self.mode == "meta_val":
+            stats = self._meta_val_stats
+        else:
+            stats = self._meta_test_stats
+        return pd.DataFrame(stats)
 
-    def get_latest_stats(self):
-        return self._stats[-1]
-
-    def get_stats(self):
-        return pd.DataFrame(self._stats)
+    def get_ious(self, mode):
+        if self.mode == "meta_train":
+            ious = self._meta_train_ious
+        elif self.mode == "meta_val":
+            ious = self._meta_val_ious
+        else:
+            ious = self._meta_test_ious
+        return pd.DataFrame(ious)
 
     def disp_stats(self):
         print(self.stats_msg)
