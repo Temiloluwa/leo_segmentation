@@ -6,7 +6,7 @@ from torch.nn import MSELoss
 from easydict import EasyDict as edict
 from torch.utils.tensorboard import SummaryWriter
 from data import Datagenerator, TrainingStats
-from model_combined2 import LEO, load_model, save_model
+from model_combined import LEO, load_model, save_model
 from utils import load_config, check_experiment, get_named_dict, log_data
 
 try:
@@ -19,16 +19,18 @@ except NameError:
     dataset = args.dataset
 
 
-def load_model_and_params(config, device):
+def load_model_and_params(config, writer, device):
     """Loads model and accompanying saved parameters"""
-    leo, optimizer, stats = load_model(config)
+    leo, optimizer, stats = load_model(config, writer, device)
     episodes_completed = stats["episode"]
+    print(stats)
     leo.eval()
     leo = leo.to(device)
     train_stats = TrainingStats(config)
     train_stats.set_episode(episodes_completed)
+    train_stats.set_mode(stats["mode"])
     train_stats.update_stats(**stats)
-    return leo, optimizer, train_stats
+    return leo, optimizer, train_stats, episodes_completed
 
 
 def train_model(config):
@@ -36,7 +38,7 @@ def train_model(config):
     writer = SummaryWriter(os.path.join(config.data_path, "models", str(config.experiment.number)))
     device = torch.device("cuda:0" if torch.cuda.is_available() and config.use_gpu else "cpu")
     if check_experiment(config):
-        leo, optimizer, train_stats = load_model_and_params(config, device)
+        leo, optimizer, train_stats, episodes_completed = load_model_and_params(config, writer, device)
     else:
         leo = LEO(config, writer).to(device)
         train_stats = TrainingStats(config)
@@ -47,6 +49,7 @@ def train_model(config):
     log_file = os.path.join(model_root, "experiment_{}".format(config.experiment.number), "val_log.txt")
     total_episodes = config.hyperparameters.episodes
     episode_times = []
+    print("episodes_completed", episodes_completed)
     for episode in range(episodes_completed + 1, total_episodes + 1):
         start_time = time.time()
         train_stats.set_episode(episode)

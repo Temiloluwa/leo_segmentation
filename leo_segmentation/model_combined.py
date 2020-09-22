@@ -282,7 +282,6 @@ class LEO(nn.Module):
             total_val_loss.append(val_loss)
             kl_loss = kl_loss * self.config.hyperparameters.kl_weight
             kl_losses.append(kl_loss)
-
         total_val_loss = sum(total_val_loss) / len(total_val_loss)
         total_kl_loss = sum(kl_losses) / len(kl_losses)
         total_loss = total_val_loss + total_kl_loss
@@ -369,7 +368,7 @@ def save_model(model, optimizer, config, stats):
                     raise ValueError("Supply the correct answer to the question")
 
 
-def load_model(config):
+def load_model(config, writer, device):
     """
     Loads the model
     Args:
@@ -402,7 +401,7 @@ def load_model(config):
     msg = f"\n*********** checkpoint {episode} was loaded **************"
     log_data(msg, log_filename)
 
-    leo = LEO(config)
+    leo = LEO(config, writer).to(device)
     optimizer = torch.optim.Adam(leo.parameters(), lr=config.hyperparameters.outer_loop_lr)
     leo.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
