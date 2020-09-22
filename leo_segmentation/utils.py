@@ -8,8 +8,9 @@ from matplotlib import pyplot as plt
 from easydict import EasyDict as edict
 from io import StringIO
 
-def load_config(config_path:str="../config.json"):
+def load_config(config_path:str="config.json"):
     """Loads config file"""
+    config_path = os.path.join(project_root, config_path)
     with open(config_path, "r") as f:
         config = json.loads(f.read())
     return edict(config)
@@ -109,7 +110,7 @@ def create_log(config):
 
 def loggers(config):
     """Returns train and validation loggers"""
-    config_dict = load_yaml("../logging.yaml")
+    config_dict = load_yaml(os.path.join(project_root, "logging.yaml"))
     create_log(config)
     config_dict["handlers"]["trainStatsHandler"]["filename"] = os.path.join(model_dir, "train_log.txt")
     config_dict["handlers"]["valStatsHandler"]["filename"] = os.path.join(model_dir, "val_log.txt")
@@ -194,7 +195,8 @@ def print_to_string_io(variable_to_print, pretty_print=True):
     string_value = string_buffer.getvalue()
     return string_value
 
+project_root = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 config = load_config()
-model_root = os.path.join(os.getcwd(), config.data_path, "models")
+model_root = os.path.join(project_root, "leo_segmenation", config.data_path, "models")
 model_dir = os.path.join(model_root, "experiment_{}".format(config.experiment.number))
 train_logger, val_logger = loggers(config)
