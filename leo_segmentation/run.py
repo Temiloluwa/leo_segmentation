@@ -30,7 +30,7 @@ def load_model_and_params(config):
     train_stats.update_stats(**stats)
     return leo, optimizer, train_stats
 
-def train_model(config):
+def train_model(config, dataset):
     """Trains Model"""
     if check_experiment(config):
         leo, optimizer, train_stats = load_model_and_params(config)
@@ -99,7 +99,7 @@ def predict_model(config, dataset, model_and_params, transformers):
 def main():
     config = load_config()
     if config.train:
-        train_model(config)
+        train_model(config, dataset)
     else:
         def evaluate_model():
             dataloader = Datagenerator(config, dataset, data_type="meta_train")
