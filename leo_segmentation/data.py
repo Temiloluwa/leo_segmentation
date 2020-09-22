@@ -163,7 +163,7 @@ class TrainingStats():
         self.total_val_loss = kwargs["total_val_loss"]
         self.mean_iou_dict =  kwargs["mean_iou_dict"] 
         self.mean_iou_dict["episode"] = self.episode
-        
+
         _stats = {
             "mode": self.mode,
             "episode": self.episode,
@@ -191,18 +191,18 @@ class TrainingStats():
             val_logger.debug(self.stats_msg)
 
     def get_stats(self, mode):
-        if self.mode == "meta_train":
+        if mode == "meta_train":
             stats = self._meta_train_stats
-        elif self.mode == "meta_val":
+        elif mode == "meta_val":
             stats = self._meta_val_stats
         else:
             stats = self._meta_test_stats
         return pd.DataFrame(stats)
 
     def get_ious(self, mode):
-        if self.mode == "meta_train":
+        if mode == "meta_train":
             ious = self._meta_train_ious
-        elif self.mode == "meta_val":
+        elif mode == "meta_val":
             ious = self._meta_val_ious
         else:
             ious = self._meta_test_ious
