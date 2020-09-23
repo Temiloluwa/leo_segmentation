@@ -50,6 +50,7 @@ def train_model(config, dataset):
         leo = LEO(config).to(device)
         train_stats = TrainingStats(config)
         episodes_completed = 0
+    leo.freeze_encoder()
     episodes = config.hyperparameters.episodes
     episode_times = []
     train_logger.debug(f"Start time")
@@ -82,11 +83,6 @@ def train_model(config, dataset):
         gc.collect()
         torch.cuda.empty_cache()
         torch.cuda.ipc_collect()
-        # optimizer_leo.zero_grad()
-        # optimizer_maml.zero_grad()
-        # metatrain_loss.backward()
-        # optimizer_leo.step()
-        # optimizer_maml.step()
     model_and_params = leo, None, train_stats
     leo = predict_model(config, dataset, model_and_params, transformers)
     log_msg = print_to_string_io(f"Total Model Training Time \

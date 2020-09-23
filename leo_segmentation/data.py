@@ -2,8 +2,9 @@ import os
 import collections
 import pandas as pd
 import numpy as np
+import random
 from .utils import meta_classes_selector, print_to_string_io, \
-    train_logger, val_logger
+    train_logger, val_logger, numpy_to_tensor
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, utils, datasets
 from PIL import Image
@@ -118,6 +119,15 @@ class Datagenerator(Dataset):
             raise ValueError("number of tasks must be less than the number \
                              of available classes")
 
+        def data_path_assertions(data_path, img_or_mask):
+            """ Make assertions over selected paths"""
+            temp = data_path.split(os.sep)
+            _img_or_mask, _selected_class = temp[-3], temp[-2]
+            assert _img_or_mask == img_or_mask,\
+                    "wrong data type (image or mask)"
+            # assert _selected_class == selected_class,\
+            # "wrong class (selected class)"
+        
         tr_imgs = []
         tr_masks = []
         val_imgs = []
@@ -125,32 +135,6 @@ class Datagenerator(Dataset):
         classes_selected = []
 
         for i in range(batch_size):
-            selected_class = (np.random.choice(classes, num_classes,
-                              replace=False))[0]
-            classes_selected.append(selected_class)
-            classes = list(set(classes) - set([selected_class]))
-            tr_img_paths = []
-            tr_masks_paths = []
-            val_img_paths = []
-            val_masks_paths = []
-
-            def data_path_assertions(data_path, img_or_mask):
-                """ Make assertions over selected paths"""
-                temp = data_path.split(os.sep)
-                _img_or_mask, _selected_class = temp[-3], temp[-2]
-                assert _img_or_mask == img_or_mask,\
-                       "wrong data type (image or mask)"
-                # assert _selected_class == selected_class,\
-                # "wrong class (selected class)"
-
-        tr_imgs = []
-        tr_masks = []
-        val_imgs = []
-        val_masks = []
-        classes_selected = []
-
-        for i in range(batch_size):
-            # Sample classes
             selected_class = (np.random.choice(classes, num_classes,
                               replace=False))[0]
             classes_selected.append(selected_class)
@@ -159,6 +143,7 @@ class Datagenerator(Dataset):
             tr_masks_paths = []
             val_img_paths = []
             val_masks_paths = []
+
             # Sample image paths belonging to classes
             img_paths = [i[0] for i in img_datasets.imgs
                          if selected_class in i[0]]
@@ -206,14 +191,14 @@ class Datagenerator(Dataset):
         total_tr_img_paths = tr_imgs + tr_masks
         total_vl_img_paths = val_imgs + val_masks
         if self._data_type == "meta_train":
-            tr_data, tr_data_masks, val_data, val_masks = np.array(tr_imgs),\
-                                                        np.array(tr_masks),\
-                                                        np.array(val_imgs),\
-                                                        np.array(val_masks)
+            tr_data, tr_data_masks, val_data, val_masks = numpy_to_tensor(np.array(tr_imgs)),\
+                                                        numpy_to_tensor(np.array(tr_masks)),\
+                                                        numpy_to_tensor(np.array(val_imgs)),\
+                                                        numpy_to_tensor(np.array(val_masks))
             return tr_data, tr_data_masks, val_data, val_masks,\
                 classes_selected, total_tr_img_paths, total_vl_img_paths
         else:
-            tr_data, tr_data_masks = np.array(tr_imgs), np.array(tr_masks)
+            tr_data, tr_data_masks = numpy_to_tensor(np.array(tr_imgs)), numpy_to_tensor(np.array(tr_masks))
             return tr_data, tr_data_masks, val_imgs, val_masks,\
                 classes_selected, total_tr_img_paths, total_vl_img_paths
 
@@ -249,7 +234,6 @@ class TrainingStats:
         _stats = {
             "mode": self.mode,
             "episode": self.episode,
-            "kl_loss": self.kl_loss,
             "total_val_loss": self.total_val_loss,
         }
 

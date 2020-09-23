@@ -1,6 +1,6 @@
 {
     "train":true,
-    "use_gpu":false,
+    "use_gpu":true,
     "checkpoint_interval":99,
     "display_stats_interval":100,
     "meta_val_interval":1,
@@ -13,7 +13,7 @@
         "meta_class_splits":{"meta_train":[0, 10], "meta_val":[10, 15], "meta_test":[15,20]},
         "n_train_per_class":{"meta_train":2, "meta_val":2, "meta_test":2},
         "n_val_per_class":{"meta_train":5, "meta_val":"rest", "meta_test":"rest"},
-        "num_tasks":{"meta_train":5, "meta_val":5, "meta_test":5}
+        "num_tasks":{"meta_train":3, "meta_val":5, "meta_test":5}
     },
     "experiment":{"number":8, "episode":1, "description":"pytorch_leo_maml development", "prompt_deletion":false},
     "hyperparameters":{

@@ -1,14 +1,16 @@
 import os
 import torch
+import gc
 import numpy as np
 from torch import nn
 from torch.distributions import Normal
 from torch.nn import CrossEntropyLoss
-from torch.utils.tensorboard import SummaryWriter
 from torchvision import models
 from torch.nn import functional as F
-from utils import display_data_shape, get_named_dict, calc_iou_per_class,\
-    log_data, load_config
+from tqdm import tqdm
+from .utils import display_data_shape, get_named_dict, calc_iou_per_class,\
+    log_data, load_config, list_to_tensor, numpy_to_tensor, tensor_to_numpy,\
+    prepare_inputs
 
 
 class EncoderBlock(nn.Module):
@@ -25,50 +27,52 @@ class EncoderBlock(nn.Module):
             x = layer(x)
             if i in output_layers:
                 features.append(x)
-        return x, features
+        features.append(x)
+        return features
 
 
-def decoder_block(config, trans_in_channels, trans_out_channels, conv_out_channels, dropout=True):
+def decoder_block(conv_in_size, conv_out_size):
     """ Sequentical group formimg a decoder block """
     layers = [
-              nn.Conv2d(conv_out_channels, conv_out_channels, kernel_size=3, stride=1, padding=1),
+              nn.Conv2d(conv_in_size, conv_out_size,
+                        kernel_size=3, stride=1, padding=1),
               nn.ReLU(),
-              nn.Dropout(config.dropout_rate),
-              nn.BatchNorm2d(conv_out_channels),
+              nn.Dropout(dropout_rate),
+              nn.BatchNorm2d(conv_out_size),
+              nn.Conv2d(conv_out_size, conv_out_size,
+                        kernel_size=3, stride=1, padding=1),
               nn.ReLU(),
-              nn.ConvTranspose2d(trans_in_channels, trans_out_channels, kernel_size=4, stride=2, padding=1)
+              nn.ConvTranspose2d(conv_out_size, conv_out_size,
+                                 kernel_size=4, stride=2, padding=1)
              ]
     conv_block = nn.Sequential(*layers)
-    return conv_trans, conv_block
+    return conv_block
 
 
 class DecoderBlock(nn.Module):
     """
     Leo Decoder
     """
-    def __init__(self, config):
+    def __init__(self):
         super(DecoderBlock, self).__init__()
         base_chn = 8
-        self.conv_trans1, self.conv_1 = decoder_block(config, 1280, base_chn, 96 + base_chn)
-        self.conv_trans2, self.conv_2 = decoder_block(config, 96 + base_chn, base_chn*2, 32 + base_chn*2)
-        self.conv_trans3, self.conv_3 = decoder_block(config, 32 + base_chn*2, base_chn*3, 24 + base_chn*3)
-        self.conv_trans4, self.conv_4 = decoder_block(config, 24 + base_chn*3, base_chn*4, 16 + base_chn*4)
-        self.conv_trans_final = nn.ConvTranspose2d(16 + base_chn*4, 16 + base_chn*4, kernel_size=4, stride=2, padding=1)
-       
-    def forward(self, x, concat_features):
-        o = self.conv_trans1(x)
-        o = torch.cat([o, concat_features[-1]], dim=1)
-        o = self.conv_1(o)
-        o = self.conv_trans2(o)
-        o = torch.cat([o, concat_features[-2]], dim=1)
-        o = self.conv_2(o)
-        o = self.conv_trans3(o)
-        o = torch.cat([o, concat_features[-3]], dim=1)
-        o = self.conv_3(o)
-        o = self.conv_trans4(o)
-        o = torch.cat([o, concat_features[-4]], dim=1)
-        o = self.conv_4(o)
-        o = self.conv_trans_final(o)
+        self.conv1 = decoder_block(1280, base_chn*1)
+        self.conv2 = decoder_block(96 + base_chn*1, base_chn*2)
+        self.conv3 = decoder_block(32 + base_chn*2, base_chn*3)
+        self.conv4 = decoder_block(24 + base_chn*3, base_chn*4)
+        self.up_final = nn.ConvTranspose2d(16 + base_chn*4, base_chn*5,
+                                           kernel_size=4, stride=2, padding=1)
+        
+    def forward(self, encoder_outputs):
+        o = self.conv1(encoder_outputs[-1])
+        o = torch.cat([o, encoder_outputs[-2]], dim=1)
+        o = self.conv2(o)
+        o = torch.cat([o, encoder_outputs[-3]], dim=1)
+        o = self.conv3(o)
+        o = torch.cat([o, encoder_outputs[-4]], dim=1)
+        o = self.conv4(o)
+        o = torch.cat([o, encoder_outputs[-5]], dim=1)
+        o = self.up_final(o)
         return o
 
 
@@ -80,25 +84,35 @@ class LEO(nn.Module):
         super(LEO, self).__init__()
         self.config = config
         self.mode = mode
+        img_dims = config.data_params.img_dims
         self.img_dims = (img_dims.channels, img_dims.height, img_dims.width)
         self.encoder = EncoderBlock()
-        self.decoder = DecoderBlock(config.hyperparameters)
+        self.decoder = DecoderBlock()
         self.device = torch.device("cuda:0" if torch.cuda.is_available()
                                    and config.use_gpu else "cpu")
-        seg_network = nn.Conv2d(16 + 8*4 + 3 , 2, kernel_size=3, stride=1, padding=1)
+        seg_network = nn.Conv2d(8*5 + 3, 2, kernel_size=3, stride=1, padding=1)
         self.seg_weight = seg_network.weight.detach().to(self.device)
         self.seg_weight.requires_grad = True
         self.loss_fn = CrossEntropyLoss()
         self.optimizer_decoder = torch.optim.Adam(
-            self.decoder.parameters(), lr=config.hyperparameters.outer_loop_lr)
+            self.decoder.parameters(), lr=outer_loop_lr)
         self.optimizer_seg_network = torch.optim.Adam(
-            [self.seg_weight], lr=config.hyperparameters.outer_loop_lr)
+            [self.seg_weight], lr=outer_loop_lr)
 
     def freeze_encoder(self):
         """ Freeze encoder weights """
-        for name, param in self.named_parameters():
-            if "encoder" in name:
-                param.requires_grad = False
+        for param in self.encoder.parameters():
+            param.requires_grad = False
+
+    def freeze_decoder(self):
+        """ Freeze decoder weights """
+        for param in self.decoder.parameters():
+            param.requires_grad = False
+
+    def unfreeze_decoder(self):
+        """ unfreeze decoder weights """
+        for param in self.decoder.parameters():
+            param.requires_grad = True
 
     def forward_encoder(self, x):
         """ Performs forward pass through the encoder """
@@ -124,7 +138,7 @@ class LEO(nn.Module):
                 pred(tf.tensor): predicted logits
         """
         o = torch.cat([decoder_out, x], dim=1)
-        pred = F.conv2d(o, weight, bias, padding=1)
+        pred = F.conv2d(o, weight, padding=1)
         return pred
 
     def forward(self, x, latents=None):
@@ -149,33 +163,33 @@ class LEO(nn.Module):
         pred = self.forward_segnetwork(features, x, self.seg_weight)
         return latents, features, pred
     
-        def leo_inner_loop(self, x, y):
-            """ Performs innerloop optimization
-                - It updates the latents taking gradients wrt the training loss
-                - It generates better features after the latents are updated
+    def leo_inner_loop(self, x, y):
+        """ Performs innerloop optimization
+            - It updates the latents taking gradients wrt the training loss
+            - It generates better features after the latents are updated
 
-                Args:
-                    x(torch.Tensor): input training image
-                    y(torch.Tensor): input training mask
+            Args:
+                x(torch.Tensor): input training image
+                y(torch.Tensor): input training mask
 
-                Returns:
-                    seg_weight_grad(torch.Tensor): The last gradient of the
-                     training loss wrt to the segmenation weights
-                    features(torch.Tensor): The last generated features
-            """    
-            inner_lr = self.config.hyperparameters.inner_loop_lr
-            latents, _, pred = self.forward(x)
-            tr_loss = self.loss_fn(y, pred)
-            for _ in range(self.config.hyperparameters.num_adaptation_steps):
-                latents_grad = torch.autograd.grad(tr_loss, [latents],
-                                                   create_graph=False)[0]
-                with torch.no_grad():
-                    latents -= inner_lr * latents_grad
-                latents, features, pred = self.forward(x, latents)
-                tr_loss = self.loss_fn(pred, y.long())
-            seg_weight_grad = torch.autograd.grad(tr_loss, [self.seg_weight],
-                                                  create_graph=False)[0]
-            return seg_weight_grad, features
+            Returns:
+                seg_weight_grad(torch.Tensor): The last gradient of the
+                    training loss wrt to the segmenation weights
+                features(torch.Tensor): The last generated features
+        """    
+        inner_lr = self.config.hyperparameters.inner_loop_lr
+        latents, _, pred = self.forward(x)
+        tr_loss = self.loss_fn(pred, y.long())
+        for _ in range(self.config.hyperparameters.num_adaptation_steps):
+            latents_grad = torch.autograd.grad(tr_loss, [latents],
+                                                create_graph=False)[0]
+            with torch.no_grad():
+                latents -= inner_lr * latents_grad
+            latents, features, pred = self.forward(x, latents)
+            tr_loss = self.loss_fn(pred, y.long())
+        seg_weight_grad = torch.autograd.grad(tr_loss, [self.seg_weight],
+                                                create_graph=False)[0]
+        return seg_weight_grad, features
 
     def finetuning_inner_loop(self, data_dict, tr_features, seg_weight_grad,
                               transformers, mode):
@@ -200,39 +214,47 @@ class LEO(nn.Module):
         weight = self.seg_weight - finetuning_lr * seg_weight_grad
         for _ in range(num_steps - 1):
             pred = self.forward_segnetwork(tr_features, data_dict.tr_imgs, weight)
-            tr_loss = self.loss_fn(pred, data_dict.tr_masks)
+            tr_loss = self.loss_fn(pred, data_dict.tr_masks.long())
             seg_weight_grad = torch.autograd.grad(tr_loss, [weight],
                                                   create_graph=False)[0]
             weight -= finetuning_lr * seg_weight_grad
 
-            if mode == "meta_train":
-                encoder_outputs = self.forward_encoder(data_dict.val_imgs)
-                features = self.forward_decoder(encoder_outputs)
-                pred = self.forward_segnetwork(features, data_dict.val_imgs, weight)
-                val_loss = self.loss_fn(pred, data_dict.val_masks)
-                seg_weight_grad, decoder_grads = torch.autograd.
-                grad(val_loss, [weight, self.decoder.parameters()],
-                     create_graph=False)
-                mean_iou = calc_iou_per_class(pred, data_dict.val_masks)
-                return val_loss, seg_weight_grad, decoder_grads, mean_iou
-            else:
+        if mode == "meta_train":
+            encoder_outputs = self.forward_encoder(data_dict.val_imgs)
+            features = self.forward_decoder(encoder_outputs)
+            pred = self.forward_segnetwork(features, data_dict.val_imgs, weight)
+            val_loss = self.loss_fn(pred, data_dict.val_masks.long())
+            grad_output = torch.autograd.grad(val_loss, \
+                        [weight] + list(self.decoder.parameters()), create_graph=False)
+            seg_weight_grad, decoder_grads = grad_output[0], grad_output[1:]
+            mean_iou = calc_iou_per_class(pred, data_dict.val_masks)
+            return val_loss, seg_weight_grad, decoder_grads, mean_iou
+        else:
+            with torch.no_grad():
                 mean_ious = []
                 val_losses = []
-                val_img_paths = data.val_imgs
-                val_mask_paths = data.val_masks
-                for _img_path, _mask_path in tqdm(zip(val_img_paths, val_mask_paths)):
-                    input_img = list_to_tensor(_img_path, img_transformer)
-                    input_mask = list_to_tensor(_mask_path, mask_transformer)
-                    encoder_outputs = self.forward_encoder(input_img)
+                val_img_paths = data_dict.val_imgs
+                val_mask_paths = data_dict.val_masks
+                bs = 32
+                for i in range(len(val_img_paths)//bs + 1):
+                    temp_imgs = []
+                    temp_masks = []
+                    for _img_path, _mask_path in tqdm(zip(val_img_paths[i*bs: (i+1)*bs], val_mask_paths[i*bs: (i+1)*bs])):
+                        input_img = numpy_to_tensor(list_to_tensor(_img_path, img_transformer))
+                        input_img = torch.squeeze(prepare_inputs(input_img), dim=0)
+                        input_mask = torch.squeeze(numpy_to_tensor(list_to_tensor(_mask_path, mask_transformer)), dim=0)
+                        temp_imgs.append(input_img)
+                        temp_masks.append(input_mask)
+                    encoder_outputs = self.forward_encoder(torch.stack(temp_imgs))
                     features = self.forward_decoder(encoder_outputs)
-                    prediction = self.forward_segnetwork(features, input_img, weight)
-                    val_loss = self.loss_fn(input_mask, prediction)
+                    prediction = self.forward_segnetwork(features, torch.stack(temp_imgs), weight)
+                    val_loss = self.loss_fn(prediction, torch.stack(temp_masks).long()).item()
                     mean_iou = calc_iou_per_class(prediction, input_mask)
                     mean_ious.append(mean_iou)
                     val_losses.append(val_loss)
                 mean_iou = np.mean(mean_ious)
                 val_loss = np.mean(val_losses)
-                return val_loss, None, None, mean_iou
+            return val_loss, None, None, mean_iou
         
     def compute_loss(self, metadata, train_stats, transformers, mode="meta_train"):
         """ Performs meta optimization across tasks
@@ -269,15 +291,15 @@ class LEO(nn.Module):
                     total_grads = [total_grads[i] + decoder_grads[i]\
                                    for i in range(len(decoder_grads))]
                     seg_weight_grad += seg_weight_grad/num_tasks
-            self.optimizer_decoder.zero_grad()
-            self.optimizer_seg_network.zero_grad()
-            i = 0
-            for name, params in self.decoder.parameters():
-                params.grad = total_grads[i]
-                i += 1
-            self.seg_weight.grad = seg_weight_grad
-            self.optimizer_decoder.step()
-            self.optimizer_seg_network.step()
+                self.optimizer_decoder.zero_grad()
+                self.optimizer_seg_network.zero_grad()
+                i = 0
+                for params in self.decoder.parameters():
+                    params.grad = total_grads[i]
+                    i += 1
+                self.seg_weight.grad = seg_weight_grad
+                self.optimizer_decoder.step()
+                self.optimizer_seg_network.step()
             mean_iou_dict[classes[batch]] = mean_iou
             total_val_loss.append(val_loss)
             
@@ -405,3 +427,7 @@ def load_model(config):
 
     return leo, optimizer, stats
 
+
+config = load_config()
+dropout_rate = config.hyperparameters.dropout_rate
+outer_loop_lr = config.hyperparameters.outer_loop_lr

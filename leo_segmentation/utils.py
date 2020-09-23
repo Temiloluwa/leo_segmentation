@@ -25,7 +25,7 @@ def load_config(config_path: str = "config.json"):
     return edict(config)
 
 
-def meta_classes_selector(config, dataset, generate_new):
+def meta_classes_selector(config, dataset):
     """ Returns a dictionary containing classes for meta_train, meta_val,
         and meta_test_splits
         Args:
@@ -39,7 +39,7 @@ def meta_classes_selector(config, dataset, generate_new):
     if dataset in config.datasets:
         data_path = os.path.join(os.path.dirname(__file__), config.data_path,
                                  f"{dataset}", "meta_classes.pkl")
-        if os.path.exists(data_path) and not generate_new:
+        if os.path.exists(data_path):
             meta_classes_splits = load_pickled_data(data_path)
         else:
             classes = os.listdir(os.path.join(os.path.dirname(__file__),
@@ -131,8 +131,8 @@ def create_log(config):
     experiment = config.experiment
     if not os.path.exists(model_dir):
         os.makedirs(model_dir, exist_ok=True)
-    msg = f"********************* Experiment {experiment.number} \
-            *********************\n"
+    msg = f"********************* Experiment {experiment.number} "
+    msg += "*********************\n"
     msg += f"Description: {experiment.description}\n"
     log_filename = os.path.join(model_dir, "train_log.txt")
     log_data(msg, log_filename, overwrite=True)
@@ -145,8 +145,8 @@ def create_log(config):
 def loggers(config):
     """Returns train and validation loggers"""
     config_dict = load_yaml(os.path.join(project_root, "logging.yaml"))
-    if not os.path.exists(model_root):
-        os.makedirs(model_root, exist_ok=True)
+    if not os.path.exists(model_dir):
+        os.makedirs(model_dir, exist_ok=True)
         create_log(config)
     config_dict["handlers"]["trainStatsHandler"]["filename"] = \
         os.path.join(model_dir, "train_log.txt")
@@ -166,7 +166,7 @@ def check_experiment(config):
     Returns:
         (bool)
     """
-    config.experiment = experiment
+    experiment = config.experiment 
     existing_models = os.listdir(model_root)
     checkpoint_paths = os.path.join(model_root,
                                     f"experiment_{experiment.number}")
@@ -188,6 +188,8 @@ def prepare_inputs(data):
         Returns:
             data (tensor): (num_examples_per_class, channels, height, width)
     """
+    if type(data) == list:
+        return data
     if len(data.shape) == 4:
         data = data.permute((0, 3, 1, 2))
     return data
@@ -195,7 +197,7 @@ def prepare_inputs(data):
 
 def get_named_dict(metadata, batch):
     """Returns a named dict"""
-    tr_imgs, tr_masks, val_imgs, val_masks, _ = metadata
+    tr_imgs, tr_masks, val_imgs, val_masks, _, _, _ = metadata
     data_dict = {'tr_imgs': prepare_inputs(tr_imgs[batch]),
                  'tr_masks': prepare_inputs(tr_masks[batch]),
                  'val_imgs':  prepare_inputs(val_imgs[batch]),
@@ -203,23 +205,10 @@ def get_named_dict(metadata, batch):
     return edict(data_dict)
 
 
-def display_data_shape(metadata):
-    """Displays data shape"""
-    if type(metadata) == tuple:
-        tr_imgs, tr_masks, val_imgs, val_masks, _ = metadata
-        print(f"num tasks: {len(tr_imgs)}")
-    else:
-        tr_imgs, tr_masks, val_imgs, val_masks = metadata.tr_imgs,\
-            metadata.tr_masks, metadata.val_imgs, metadata.val_masks
-    print("tr_imgs shape: {},tr_masks shape: {}, val_imgs shape: {},\
-           val_masks shape: {}".format(tr_imgs.size(), tr_masks.size(),
-                                       val_imgs.size(), val_masks.size()))
-
-
 def log_data(msg, log_filename, overwrite=False):
     """Log data to a file"""
     mode_ = "w" if not os.path.exists(log_filename) or overwrite else "a"
-    msg = "\n" + msg if overwrite else msg
+    msg = msg if overwrite else "\n" + msg
     with open(log_filename, mode_) as f:
         f.write(msg)
 
@@ -233,19 +222,17 @@ def display_data_shape(metadata):
             if type(val_imgs) == list else val_imgs.shape
         val_masks_shape = f"{len(val_imgs)} list of paths"\
             if type(val_masks) == list else val_masks.shape
-    print("tr_imgs shape: {}, tr_masks shape: {}, val_imgs shape: {},
-          val_masks shape: {}".format(tr_imgs.shape, tr_masks.shape,
-                                      val_imgs_shape, val_masks_shape))
+    print(f"tr_imgs shape: {tr_imgs.shape}, tr_masks shape: {tr_masks.shape}",
+          f"val_imgs shape: {val_imgs_shape}, val_masks shape: {val_masks_shape}")
 
 
 def calc_iou_per_class(pred_x, targets):
     """Calculates iou"""
     iou_per_class = []
     for i in range(len(pred_x)):
-        pred = np.argmax(pred_x[i].numpy(), -1).astype(int)
-        target = targets[i].astype(int)
-        iou = np.sum(np.logical_and(target, pred))/
-        np.sum(np.logical_or(target, pred))
+        pred = np.argmax(tensor_to_numpy(pred_x[i]), 0).astype(int)
+        target = tensor_to_numpy(targets[i]).astype(int)
+        iou = np.sum(np.logical_and(target, pred))/np.sum(np.logical_or(target, pred))
         iou_per_class.append(iou)
     mean_iou_per_class = np.mean(iou_per_class)
     return mean_iou_per_class
