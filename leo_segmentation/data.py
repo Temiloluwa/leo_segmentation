@@ -77,7 +77,7 @@ class Transform_mask:
 
 
 def rgb2gray(rgb):
-    """ Convert RGB Image to gray scale """
+    """ Convert a RGB Image to gray scale """
     # https://stackoverflow.com/questions/12201577/how-can-i-convert-an-rgb-image-into-grayscale-in-python
     return np.dot(rgb[..., :3], [0.2989, 0.5870, 0.1140])
 
