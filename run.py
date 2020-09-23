@@ -53,9 +53,6 @@ def train_model(config, dataset):
     episodes = config.hyperparameters.episodes
     episode_times = []
     train_logger.debug(f"Start time")
-    # leo_parameters = [params for name, params in leo.named_parameters() if "encoder" not in name]
-    # optimizer_leo = torch.optim.Adam(leo.parameters(), lr=config.hyperparameters.outer_loop_lr)
-    # optimizer_maml = torch.optim.Adam([leo.seg_weight, leo.seg_bias], lr=config.hyperparameters.outer_loop_lr)
     for episode in range(episodes_completed+1, episodes+1):
         start_time = time.time()
         train_stats.set_episode(episode)

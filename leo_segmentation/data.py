@@ -242,7 +242,6 @@ class TrainingStats:
         self.batch = batch
 
     def update_stats(self, **kwargs):
-        self.kl_loss = kwargs["kl_loss"]
         self.total_val_loss = kwargs["total_val_loss"]
         self.mean_iou_dict = kwargs["mean_iou_dict"] 
         self.mean_iou_dict["episode"] = self.episode
@@ -266,8 +265,8 @@ class TrainingStats:
 
         mean_iou_string = print_to_string_io(self.mean_iou_dict, True)
         msg = f"mode: {self.mode}, episode: {self.episode: 03d},\
-                kl_loss: {self.kl_loss:2f}, total_val_loss:\
-                {self.total_val_loss:2f}, val_mean_iou:{mean_iou_string}"
+                total_val_loss: {self.total_val_loss:2f},\
+                val_mean_iou:{mean_iou_string}"
         self.stats_msg = msg
         if self.mode == "meta_train":
             train_logger.debug(self.stats_msg)
