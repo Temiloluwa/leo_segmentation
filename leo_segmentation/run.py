@@ -14,9 +14,9 @@ try:
         raise NameError("Move to except branch")
 except NameError:
     parser = argparse.ArgumentParser(description='Specify train or inference dataset')
-    parser.add_argument("-d", "--dataset", type=str, nargs=1, default="pascal_voc_raw")
+    parser.add_argument("-d", "--dataset", type=str, default="pascal_voc_raw")
     args = parser.parse_args()
-    dataset = args.dataset[0]
+    dataset = args.dataset
 
 #TO-DO change to tensorflow
 def load_model_and_params(config):
