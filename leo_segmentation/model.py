@@ -1,5 +1,3 @@
-# Architecture definition
-# Computational graph creation
 import torch, os, numpy as np
 from torch import nn
 from torch.distributions import Normal
