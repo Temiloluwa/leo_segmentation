@@ -244,11 +244,13 @@ class TrainingStats:
         else:
             self._meta_test_stats.append(_stats)
             self._meta_test_ious.append(self.mean_iou_dict)
-
-        mean_iou_string = print_to_string_io(self.mean_iou_dict, True)
-        msg = f"mode: {self.mode}, episode: {self.episode: 03d},\
-                total_val_loss: {self.total_val_loss:2f},\
-                val_mean_iou:{mean_iou_string}"
+        
+        mean_iou_dict = self.mean_iou_dict.copy()
+        mean_iou_dict.pop("episode")
+        mean_iou_string = print_to_string_io(mean_iou_dict, True)
+        msg = f"mode: {self.mode}, episode: {self.episode: 03d}, "\
+            + f"total_val_loss: {self.total_val_loss:2f}, "\
+            + f"\nval_mean_iou:{mean_iou_string}"
         self.stats_msg = msg
         if self.mode == "meta_train":
             train_logger.debug(self.stats_msg)

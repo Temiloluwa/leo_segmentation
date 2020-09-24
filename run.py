@@ -53,7 +53,7 @@ def train_model(config, dataset):
     leo.freeze_encoder()
     episodes = config.hyperparameters.episodes
     episode_times = []
-    train_logger.debug(f"Start time")
+    train_logger.debug("Start time")
     for episode in range(episodes_completed+1, episodes+1):
         start_time = time.time()
         train_stats.set_episode(episode)
@@ -75,8 +75,8 @@ def train_model(config, dataset):
                                               transformers, mode="meta_val")
             train_stats.disp_stats()
         episode_time = (time.time() - start_time)/60
-        log_msg = print_to_string_io(f"Episode: {episode}, Episode Time:\
-            {episode_time:0.03f} minutes", False)
+        log_msg = f"Episode: {episode}, Episode Time: {episode_time:0.03f} minutes"
+        print(log_msg)
         train_logger.debug(log_msg)
         episode_times.append(episode_time)
         del metadata
@@ -85,10 +85,10 @@ def train_model(config, dataset):
         torch.cuda.ipc_collect()
     model_and_params = leo, None, train_stats
     leo = predict_model(config, dataset, model_and_params, transformers)
-    log_msg = print_to_string_io(f"Total Model Training Time \
-        {np.sum(episode_times):0.03f} minutes", False)
+    log_msg = f"Total Model Training Time {np.sum(episode_times):0.03f} minutes"
+    print(log_msg)
     train_logger.debug(log_msg)
-    train_logger.debug(f"End time")
+    train_logger.debug("End time")
     return leo
 
 

@@ -226,7 +226,7 @@ class LEO(nn.Module):
                         [weight] + list(self.decoder.parameters()), create_graph=False)
             seg_weight_grad, decoder_grads = grad_output[0], grad_output[1:]
             mean_iou = calc_iou_per_class(pred, data_dict.val_masks)
-            return val_loss, seg_weight_grad, decoder_grads, mean_iou
+            return val_loss, seg_weight_grad, decoder_grads, mean_iou, weight
         else:
             with torch.no_grad():
                 mean_ious = []
@@ -245,7 +245,7 @@ class LEO(nn.Module):
                     val_losses.append(val_loss)
                 mean_iou = np.mean(mean_ious)
                 val_loss = np.mean(val_losses)
-            return val_loss, None, None, mean_iou
+            return val_loss, None, None, mean_iou, weight
         
     def compute_loss(self, metadata, train_stats, transformers, mode="meta_train"):
         """ Performs meta optimization across tasks
@@ -270,7 +270,7 @@ class LEO(nn.Module):
         for batch in range(num_tasks):
             data = get_named_dict(metadata, batch)
             seg_weight_grad, features = self.leo_inner_loop(data.tr_imgs, data.tr_masks)
-            val_loss, seg_weight_grad, decoder_grads, mean_iou = \
+            val_loss, seg_weight_grad, decoder_grads, mean_iou, _ = \
                 self.finetuning_inner_loop(data, features, seg_weight_grad,
                                            transformers, mode)
             if mode == "meta_train":
