@@ -24,13 +24,13 @@ except NameError:
     dataset = args.dataset
 
 
-def load_model_and_params(config):
+def load_model_and_params():
     """Loads model and accompanying saved parameters"""
-    leo, optimizer, stats = load_model(config)
+    leo, optimizer, stats = load_model()
     episodes_completed = stats["episode"]
     leo.eval()
     leo = leo.to(device)
-    train_stats = TrainingStats(config)
+    train_stats = TrainingStats()
     train_stats.set_episode(episodes_completed)
     train_stats.update_stats(**stats)
     return leo, optimizer, train_stats
@@ -44,11 +44,11 @@ def train_model(config, dataset):
                           and config.use_gpu else "cpu")
     if check_experiment(config):
         # Load saved model and parameters
-        leo, optimizer, train_stats = load_model_and_params(config)
+        leo, optimizer, train_stats = load_model_and_params()
     else:
         # Train a fresh model
-        leo = LEO(config).to(device)
-        train_stats = TrainingStats(config)
+        leo = LEO().to(device)
+        train_stats = TrainingStats()
         episodes_completed = 0
     leo.freeze_encoder()
     episodes = config.hyperparameters.episodes
@@ -59,7 +59,7 @@ def train_model(config, dataset):
         train_stats.set_episode(episode)
         train_stats.set_mode("meta_train")
         # meta-train stage
-        dataloader = Datagenerator(config, dataset, data_type="meta_train")
+        dataloader = Datagenerator(dataset, data_type="meta_train")
         metadata = dataloader.get_batch_data()
         transformers = (dataloader.transform_image, dataloader.transform_mask)
         _, train_stats = leo.compute_loss(metadata, train_stats, transformers)
@@ -68,7 +68,7 @@ def train_model(config, dataset):
                        edict(train_stats.get_latest_stats()))
         # meta-val stage
         if episode % config.meta_val_interval == 0:
-            dataloader = Datagenerator(config, dataset, data_type="meta_val")
+            dataloader = Datagenerator(dataset, data_type="meta_val")
             train_stats.set_mode("meta_val")
             metadata = dataloader.get_batch_data()
             _, train_stats = leo.compute_loss(metadata, train_stats,
@@ -84,7 +84,7 @@ def train_model(config, dataset):
         torch.cuda.empty_cache()
         torch.cuda.ipc_collect()
     model_and_params = leo, None, train_stats
-    leo = predict_model(config, dataset, model_and_params, transformers)
+    leo = predict_model(dataset, model_and_params, transformers)
     log_msg = f"Total Model Training Time {np.sum(episode_times):0.03f} minutes"
     print(log_msg)
     train_logger.debug(log_msg)
@@ -92,10 +92,10 @@ def train_model(config, dataset):
     return leo
 
 
-def predict_model(config, dataset, model_and_params, transformers):
+def predict_model(dataset, model_and_params, transformers):
     """Implement Predicion on Meta-Test"""
     leo, _, train_stats = model_and_params
-    dataloader = Datagenerator(config, dataset, data_type="meta_test")
+    dataloader = Datagenerator(dataset, data_type="meta_test")
     train_stats.set_mode("meta_test")
     metadata = dataloader.get_batch_data()
     _, train_stats = leo.compute_loss(metadata, train_stats, transformers,
@@ -117,20 +117,20 @@ def predict_model(config, dataset, model_and_params, transformers):
 
 
 def main():
-    config = load_config()
     if config.train:
         train_model(config, dataset)
     else:
         def evaluate_model():
-            dataloader = Datagenerator(config, dataset, data_type="meta_train")
+            dataloader = Datagenerator(dataset, data_type="meta_train")
             img_transformer = dataloader.transform_image
             mask_transformer = dataloader.transform_mask
             transformers = (img_transformer, mask_transformer)
-            model_and_params = load_model_and_params(config)
-            return predict_model(config, dataset, model_and_params,
+            model_and_params = load_model_and_params()
+            return predict_model(dataset, model_and_params,
                                  transformers)
         evaluate_model()
 
 
 if __name__ == "__main__":
+    config = load_config()
     main()

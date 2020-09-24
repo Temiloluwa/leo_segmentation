@@ -178,6 +178,7 @@ def check_experiment(config):
          experiment.episode == -1:
         return True
     else:
+        create_log(config)
         return False
 
 
@@ -263,7 +264,6 @@ def print_to_string_io(variable_to_print, pretty_print=True):
     sys.stdout = previous_stdout
     string_value = string_buffer.getvalue()
     return string_value
-
 
 project_root = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 config = load_config()

@@ -37,7 +37,7 @@ def decoder_block(conv_in_size, conv_out_size):
               nn.Conv2d(conv_in_size, conv_out_size,
                         kernel_size=3, stride=1, padding=1),
               nn.ReLU(),
-              nn.Dropout(dropout_rate),
+              nn.Dropout(hyp.dropout_rate),
               nn.BatchNorm2d(conv_out_size),
               nn.Conv2d(conv_out_size, conv_out_size,
                         kernel_size=3, stride=1, padding=1),
@@ -53,14 +53,13 @@ class DecoderBlock(nn.Module):
     """
     Leo Decoder
     """
-    def __init__(self):
+    def __init__(self, encoder_outputs):
         super(DecoderBlock, self).__init__()
-        base_chn = 8
-        self.conv1 = decoder_block(1280, base_chn*1)
-        self.conv2 = decoder_block(96 + base_chn*1, base_chn*2)
-        self.conv3 = decoder_block(32 + base_chn*2, base_chn*3)
-        self.conv4 = decoder_block(24 + base_chn*3, base_chn*4)
-        self.up_final = nn.ConvTranspose2d(16 + base_chn*4, base_chn*5,
+        self.conv1 = decoder_block(encoder_outputs[-1].shape[1], hyp.base_num_covs*1)
+        self.conv2 = decoder_block(encoder_outputs[-2].shape[1] + hyp.base_num_covs*1, hyp.base_num_covs*2)
+        self.conv3 = decoder_block(encoder_outputs[-3].shape[1] + hyp.base_num_covs*2, hyp.base_num_covs*3)
+        self.conv4 = decoder_block(encoder_outputs[-4].shape[1] + hyp.base_num_covs*3, hyp.base_num_covs*4)
+        self.up_final = nn.ConvTranspose2d(encoder_outputs[-5].shape[1] + hyp.base_num_covs*4, hyp.base_num_covs*5,
                                            kernel_size=4, stride=2, padding=1)
         
     def forward(self, encoder_outputs):
@@ -80,39 +79,25 @@ class LEO(nn.Module):
     """
     contains functions to perform latent embedding optimization
     """
-    def __init__(self, config, mode="meta_train"):
+    def __init__(self, mode="meta_train"):
         super(LEO, self).__init__()
-        self.config = config
         self.mode = mode
         img_dims = config.data_params.img_dims
         self.img_dims = (img_dims.channels, img_dims.height, img_dims.width)
         self.encoder = EncoderBlock()
-        self.decoder = DecoderBlock()
         self.device = torch.device("cuda:0" if torch.cuda.is_available()
                                    and config.use_gpu else "cpu")
-        seg_network = nn.Conv2d(8*5 + 3, 2, kernel_size=3, stride=1, padding=1)
+        seg_network = nn.Conv2d(hyp.base_num_covs*5 + 3, 2, kernel_size=3, stride=1, padding=1)
         self.seg_weight = seg_network.weight.detach().to(self.device)
         self.seg_weight.requires_grad = True
         self.loss_fn = CrossEntropyLoss()
-        self.optimizer_decoder = torch.optim.Adam(
-            self.decoder.parameters(), lr=outer_loop_lr)
         self.optimizer_seg_network = torch.optim.Adam(
-            [self.seg_weight], lr=outer_loop_lr)
+            [self.seg_weight], lr=hyp.outer_loop_lr)
 
     def freeze_encoder(self):
         """ Freeze encoder weights """
         for param in self.encoder.parameters():
             param.requires_grad = False
-
-    def freeze_decoder(self):
-        """ Freeze decoder weights """
-        for param in self.decoder.parameters():
-            param.requires_grad = False
-
-    def unfreeze_decoder(self):
-        """ unfreeze decoder weights """
-        for param in self.decoder.parameters():
-            param.requires_grad = True
 
     def forward_encoder(self, x):
         """ Performs forward pass through the encoder """
@@ -177,10 +162,10 @@ class LEO(nn.Module):
                     training loss wrt to the segmenation weights
                 features(torch.Tensor): The last generated features
         """    
-        inner_lr = self.config.hyperparameters.inner_loop_lr
+        inner_lr = hyp.inner_loop_lr
         latents, _, pred = self.forward(x)
         tr_loss = self.loss_fn(pred, y.long())
-        for _ in range(self.config.hyperparameters.num_adaptation_steps):
+        for _ in range(hyp.num_adaptation_steps):
             latents_grad = torch.autograd.grad(tr_loss, [latents],
                                                 create_graph=False)[0]
             with torch.no_grad():
@@ -209,13 +194,13 @@ class LEO(nn.Module):
                 weight (torch.Tensor): segmentation weights
         """
         img_transformer, mask_transformer = transformers
-        weight = self.seg_weight - finetuning_lr * seg_weight_grad
-        for _ in range(num_steps - 1):
+        weight = self.seg_weight - hyp.finetuning_lr * seg_weight_grad
+        for _ in range(hyp.num_finetuning_steps - 1):
             pred = self.forward_segnetwork(tr_features, data_dict.tr_imgs, weight)
             tr_loss = self.loss_fn(pred, data_dict.tr_masks.long())
             seg_weight_grad = torch.autograd.grad(tr_loss, [weight],
                                                   create_graph=False)[0]
-            weight -= finetuning_lr * seg_weight_grad
+            weight -= hyp.finetuning_lr * seg_weight_grad
 
         if mode == "meta_train":
             encoder_outputs = self.forward_encoder(data_dict.val_imgs)
@@ -260,9 +245,16 @@ class LEO(nn.Module):
                 train_stats(object): object that stores training statistics
         """
         num_tasks = len(metadata[0])
-        if train_stats.episode % self.config.display_stats_interval == 1:
-            display_data_shape(metadata)
+        #initialize decoder on the first episode
+        if train_stats.episode == 1:
+            data = get_named_dict(metadata, 0)
+            encoder_output = self.forward_encoder(data.tr_imgs)
+            self.decoder = DecoderBlock(encoder_output).to(self.device)
+            self.optimizer_decoder = torch.optim.Adam(
+            self.decoder.parameters(), lr=hyp.outer_loop_lr)
 
+        if train_stats.episode % config.display_stats_interval == 1:
+            display_data_shape(metadata)
         classes = metadata[4]
         total_val_loss = []
         mean_iou_dict = {}
@@ -327,7 +319,6 @@ def save_model(model, optimizer, config, stats):
         'episode': stats.episode,
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
-        'kl_loss': stats.kl_loss,
         'total_val_loss': stats.total_val_loss
     }
 
@@ -368,7 +359,7 @@ def save_model(model, optimizer, config, stats):
                 if trials == 3:
                     raise ValueError("Supply the correct answer to the question")
 
-def load_model(config):
+def load_model():
 
     """
     Loads the model
@@ -399,21 +390,19 @@ def load_model(config):
     checkpoint = torch.load(checkpoint_path)
 
     log_filename = os.path.join(model_dir, "model_log.txt")
-    msg =  f"\n*********** checkpoint {episode} was loaded **************" 
+    msg = f"\n*********** checkpoint {episode} was loaded **************" 
     log_data(msg, log_filename)
     
-    leo = LEO(config)
-    optimizer = torch.optim.Adam(leo.parameters(), lr=config.hyperparameters.outer_loop_lr)
+    leo = LEO()
+    optimizer = torch.optim.Adam(leo.parameters(), lr=hyp.outer_loop_lr)
     leo.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     mode = checkpoint['mode']
     total_val_loss = checkpoint['total_val_loss']
-    kl_loss = checkpoint['kl_loss']
-
+  
     stats = {
         "mode": mode,
         "episode": episode,
-        "kl_loss": kl_loss,
         "total_val_loss": total_val_loss
         }
 
@@ -421,8 +410,4 @@ def load_model(config):
 
 
 config = load_config()
-finetuning_lr = config.hyperparameters.finetuning_lr
-num_steps = config.hyperparameters.num_finetuning_steps
-dropout_rate = config.hyperparameters.dropout_rate
-outer_loop_lr = config.hyperparameters.outer_loop_lr
-bs = config.hyperparameters.evaluation_bs
+hyp = config.hyperparameters

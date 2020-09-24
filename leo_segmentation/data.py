@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 import random
 from .utils import meta_classes_selector, print_to_string_io, \
-    train_logger, val_logger, numpy_to_tensor
+    train_logger, val_logger, numpy_to_tensor, load_config
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, utils, datasets
 from PIL import Image
@@ -87,12 +87,10 @@ class Datagenerator(Dataset):
     """Sample task data for Meta-train, Meta-val and Meta-train tasks
 
     Args:
-        config (dict): config
         dataset (str): dataset name
         data_type (str): Meta-train, Meta-val or Meta-test
     """
-    def __init__(self, config, dataset, data_type):
-        self._config = config
+    def __init__(self, dataset, data_type):
         self._dataset = dataset
         self._data_type = data_type
         self.classes_dict = meta_classes_selector(config, dataset)
@@ -104,14 +102,14 @@ class Datagenerator(Dataset):
         return len(self._dataset)
 
     def __getitem__(self, idx):
-        config = self._config.data_params
+        _config = config.data_params
         dataset_root_path = os.path.join(os.path.dirname(__file__),
-                                         self._config.data_path, self._dataset)
+                                         config.data_path, self._dataset)
         classes = self.classes_dict[self._data_type]
-        num_classes = config.num_classes
-        n_train_per_class = config.n_train_per_class[self._data_type]
-        n_val_per_class = config.n_val_per_class[self._data_type]
-        batch_size = config.num_tasks[self._data_type]
+        num_classes = _config.num_classes
+        n_train_per_class = _config.n_train_per_class[self._data_type]
+        n_val_per_class = _config.n_val_per_class[self._data_type]
+        batch_size = _config.num_tasks[self._data_type]
         img_datasets = datasets.ImageFolder(root=os.path.join(
             dataset_root_path, "images"))
 
@@ -206,14 +204,13 @@ class Datagenerator(Dataset):
 
 class TrainingStats:
     """ Stores train statistics data """
-    def __init__(self, config):
+    def __init__(self):
         self._meta_train_stats = []
         self._meta_val_stats = []
         self._meta_test_stats = []
         self._meta_train_ious = []
         self._meta_val_ious = []
         self._meta_test_ious = []
-        self.config = config
 
     def set_episode(self, episode):
         self.episode = episode
@@ -277,3 +274,6 @@ class TrainingStats:
 
     def disp_stats(self):
         print(self.stats_msg)
+
+
+config = load_config()
