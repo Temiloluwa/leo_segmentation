@@ -56,7 +56,7 @@ def meta_classes_selector(config, dataset, shuffle_classes=False):
             total_count = len(set(meta_classes_splits["meta_train"] +
                               meta_classes_splits["meta_val"] +
                               meta_classes_splits["meta_test"]))
-            assert total_count == len(classes), "check ratios supplied"        
+            assert total_count == len(classes), "check ratios supplied"
             if os.path.exists(data_path):
                 os.remove(data_path)
                 save_pickled_data(meta_classes_splits, data_path)
@@ -166,7 +166,7 @@ def check_experiment(config):
     Returns:
         (bool)
     """
-    experiment = config.experiment 
+    experiment = config.experiment
     existing_models = os.listdir(model_root)
     checkpoint_paths = os.path.join(model_root,
                                     f"experiment_{experiment.number}")
@@ -264,6 +264,7 @@ def print_to_string_io(variable_to_print, pretty_print=True):
     sys.stdout = previous_stdout
     string_value = string_buffer.getvalue()
     return string_value
+
 
 project_root = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 config = load_config()

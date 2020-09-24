@@ -55,12 +55,16 @@ class DecoderBlock(nn.Module):
     """
     def __init__(self, encoder_outputs):
         super(DecoderBlock, self).__init__()
-        self.conv1 = decoder_block(encoder_outputs[-1].shape[1], hyp.base_num_covs*1)
-        self.conv2 = decoder_block(encoder_outputs[-2].shape[1] + hyp.base_num_covs*1, hyp.base_num_covs*2)
-        self.conv3 = decoder_block(encoder_outputs[-3].shape[1] + hyp.base_num_covs*2, hyp.base_num_covs*3)
-        self.conv4 = decoder_block(encoder_outputs[-4].shape[1] + hyp.base_num_covs*3, hyp.base_num_covs*4)
-        self.up_final = nn.ConvTranspose2d(encoder_outputs[-5].shape[1] + hyp.base_num_covs*4, hyp.base_num_covs*5,
-                                           kernel_size=4, stride=2, padding=1)
+        self.conv1 = decoder_block(encoder_outputs[-1].shape[1],
+                                   hyp.base_num_covs*1)
+        self.conv2 = decoder_block(encoder_outputs[-2].shape[1] + hyp.base_num_covs*1, 
+                                   hyp.base_num_covs*2)
+        self.conv3 = decoder_block(encoder_outputs[-3].shape[1] + hyp.base_num_covs*2,
+                                   hyp.base_num_covs*3)
+        self.conv4 = decoder_block(encoder_outputs[-4].shape[1] + hyp.base_num_covs*3,
+                                   hyp.base_num_covs*4)
+        self.up_final = nn.ConvTranspose2d(encoder_outputs[-5].shape[1] + hyp.base_num_covs*4,
+                                   hyp.base_num_covs*5, kernel_size=4, stride=2, padding=1)
         
     def forward(self, encoder_outputs):
         o = self.conv1(encoder_outputs[-1])
@@ -167,13 +171,13 @@ class LEO(nn.Module):
         tr_loss = self.loss_fn(pred, y.long())
         for _ in range(hyp.num_adaptation_steps):
             latents_grad = torch.autograd.grad(tr_loss, [latents],
-                                                create_graph=False)[0]
+                                               create_graph=False)[0]
             with torch.no_grad():
                 latents -= inner_lr * latents_grad
             latents, features, pred = self.forward(x, latents)
             tr_loss = self.loss_fn(pred, y.long())
         seg_weight_grad = torch.autograd.grad(tr_loss, [self.seg_weight],
-                                                create_graph=False)[0]
+                                              create_graph=False)[0]
         return seg_weight_grad, features
 
     def finetuning_inner_loop(self, data_dict, tr_features, seg_weight_grad,
@@ -207,8 +211,8 @@ class LEO(nn.Module):
             features = self.forward_decoder(encoder_outputs)
             pred = self.forward_segnetwork(features, data_dict.val_imgs, weight)
             val_loss = self.loss_fn(pred, data_dict.val_masks.long())
-            grad_output = torch.autograd.grad(val_loss, \
-                        [weight] + list(self.decoder.parameters()), create_graph=False)
+            grad_output = torch.autograd.grad(val_loss,
+                [weight] + list(self.decoder.parameters()), create_graph=False)
             seg_weight_grad, decoder_grads = grad_output[0], grad_output[1:]
             mean_iou = calc_iou_per_class(pred, data_dict.val_masks)
             return val_loss, seg_weight_grad, decoder_grads, mean_iou, weight
@@ -245,13 +249,13 @@ class LEO(nn.Module):
                 train_stats(object): object that stores training statistics
         """
         num_tasks = len(metadata[0])
-        #initialize decoder on the first episode
+        # initialize decoder on the first episode
         if train_stats.episode == 1:
             data = get_named_dict(metadata, 0)
             encoder_output = self.forward_encoder(data.tr_imgs)
             self.decoder = DecoderBlock(encoder_output).to(self.device)
             self.optimizer_decoder = torch.optim.Adam(
-            self.decoder.parameters(), lr=hyp.outer_loop_lr)
+              self.decoder.parameters(), lr=hyp.outer_loop_lr)
 
         if train_stats.episode % config.display_stats_interval == 1:
             display_data_shape(metadata)
