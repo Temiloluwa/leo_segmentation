@@ -213,14 +213,12 @@ class LEO(nn.Module):
             weight -= hyp.finetuning_lr * seg_weight_grad
 
         if mode == "meta_train":
-            encoder_outputs = self.forward_encoder(data_dict.val_imgs)
-            features = self.forward_decoder(encoder_outputs)
-            pred = self.forward_segnetwork(features, data_dict.val_imgs, weight)
-            val_loss = self.loss_fn(pred, data_dict.val_masks.long())
+            _, _, prediction = self.forward(data_dict.val_imgs, weight=weight)
+            val_loss = self.loss_fn(prediction, data_dict.val_masks.long())
             grad_output = torch.autograd.grad(val_loss,
                 [weight] + list(self.decoder.parameters()), create_graph=False)
             seg_weight_grad, decoder_grads = grad_output[0], grad_output[1:]
-            mean_iou = calc_iou_per_class(pred, data_dict.val_masks)
+            mean_iou = calc_iou_per_class(prediction, data_dict.val_masks)
             return val_loss, seg_weight_grad, decoder_grads, mean_iou, weight
         else:
             with torch.no_grad():
