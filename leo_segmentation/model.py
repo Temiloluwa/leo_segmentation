@@ -233,24 +233,16 @@ class LEO(nn.Module):
                 val_losses = []
                 val_img_paths = data_dict.val_imgs
                 val_mask_paths = data_dict.val_masks
-                for i in range(len(val_img_paths)//bs + 1):
-                    temp_imgs = []
-                    temp_masks = []
-                    for _img_path, _mask_path in tqdm(zip(val_img_paths[i*bs: (i+1)*bs], val_mask_paths[i*bs: (i+1)*bs])):
-                        input_img = numpy_to_tensor(list_to_tensor(_img_path, img_transformer))
-                        input_img = torch.squeeze(prepare_inputs(input_img), dim=0)
-                        input_mask = torch.squeeze(numpy_to_tensor(list_to_tensor(_mask_path, mask_transformer)), dim=0)
-                        temp_imgs.append(input_img)
-                        temp_masks.append(input_mask)
-                        
-                    if len(temp_imgs) != 0 or len(temp_masks) != 0:
-                        encoder_outputs = self.forward_encoder(torch.stack(temp_imgs))
-                        features = self.forward_decoder(encoder_outputs)
-                        prediction = self.forward_segnetwork(features, torch.stack(temp_imgs), weight)
-                        val_loss = self.loss_fn(prediction, torch.stack(temp_masks).long()).item()
-                        mean_iou = calc_iou_per_class(prediction, input_mask)
-                        mean_ious.append(mean_iou)
-                        val_losses.append(val_loss)
+                for _img_path, _mask_path in tqdm(zip(val_img_paths, val_mask_paths)):
+                    input_img = prepare_inputs(numpy_to_tensor(list_to_tensor(_img_path, img_transformer)))
+                    input_mask = numpy_to_tensor(list_to_tensor(_mask_path, mask_transformer))
+                    encoder_outputs = self.forward_encoder(input_img)
+                    features = self.forward_decoder(encoder_outputs)
+                    prediction = self.forward_segnetwork(features, input_img, weight)
+                    val_loss =  self.loss_fn(prediction, input_mask.long()).item()
+                    mean_iou = calc_iou_per_class(prediction, input_mask)
+                    mean_ious.append(mean_iou)
+                    val_losses.append(val_loss)
                 mean_iou = np.mean(mean_ious)
                 val_loss = np.mean(val_losses)
             return val_loss, None, None, mean_iou
