@@ -268,14 +268,15 @@ class LEO:
                 else:
                     total_gradients = [total_gradients[i] + decoder_gradients[i] for i in range(len(decoder_gradients))]
                     seg_weight_grad += seg_weight_grad/num_tasks
-                self.optimizer.apply_gradients(zip(total_gradients, self.decoder.trainable_variables))
-                self.optimizer.apply_gradients([(seg_weight_grad, self.seg_weight)])
-
+                
             mean_iou, val_loss = self.evaluate(data, prediction, weight, transformers, mode)
             val_loss = tr_val_loss if mode == "meta_train" else val_loss
             mean_iou_dict[classes[batch]] = mean_iou
             total_val_loss.append(val_loss)
-           
+        
+        if mode == "meta_train":
+            self.optimizer.apply_gradients(zip(total_gradients, self.decoder.trainable_variables))
+            self.optimizer.apply_gradients([(seg_weight_grad, self.seg_weight)])
         total_val_loss = float(sum(total_val_loss)/len(total_val_loss))  
         stats_data = {
             "mode": mode,
