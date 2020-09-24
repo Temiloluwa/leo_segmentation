@@ -209,8 +209,6 @@ class LEO(nn.Module):
                 weight (torch.Tensor): segmentation weights
         """
         img_transformer, mask_transformer = transformers
-        finetuning_lr = self.config.hyperparameters.finetuning_lr
-        num_steps = self.config.hyperparameters.num_finetuning_steps
         weight = self.seg_weight - finetuning_lr * seg_weight_grad
         for _ in range(num_steps - 1):
             pred = self.forward_segnetwork(tr_features, data_dict.tr_imgs, weight)
@@ -235,7 +233,6 @@ class LEO(nn.Module):
                 val_losses = []
                 val_img_paths = data_dict.val_imgs
                 val_mask_paths = data_dict.val_masks
-                bs = 32
                 for i in range(len(val_img_paths)//bs + 1):
                     temp_imgs = []
                     temp_masks = []
@@ -245,13 +242,15 @@ class LEO(nn.Module):
                         input_mask = torch.squeeze(numpy_to_tensor(list_to_tensor(_mask_path, mask_transformer)), dim=0)
                         temp_imgs.append(input_img)
                         temp_masks.append(input_mask)
-                    encoder_outputs = self.forward_encoder(torch.stack(temp_imgs))
-                    features = self.forward_decoder(encoder_outputs)
-                    prediction = self.forward_segnetwork(features, torch.stack(temp_imgs), weight)
-                    val_loss = self.loss_fn(prediction, torch.stack(temp_masks).long()).item()
-                    mean_iou = calc_iou_per_class(prediction, input_mask)
-                    mean_ious.append(mean_iou)
-                    val_losses.append(val_loss)
+                        
+                    if len(temp_imgs) != 0 or len(temp_masks) != 0:
+                        encoder_outputs = self.forward_encoder(torch.stack(temp_imgs))
+                        features = self.forward_decoder(encoder_outputs)
+                        prediction = self.forward_segnetwork(features, torch.stack(temp_imgs), weight)
+                        val_loss = self.loss_fn(prediction, torch.stack(temp_masks).long()).item()
+                        mean_iou = calc_iou_per_class(prediction, input_mask)
+                        mean_ious.append(mean_iou)
+                        val_losses.append(val_loss)
                 mean_iou = np.mean(mean_ious)
                 val_loss = np.mean(val_losses)
             return val_loss, None, None, mean_iou
@@ -291,18 +290,19 @@ class LEO(nn.Module):
                     total_grads = [total_grads[i] + decoder_grads[i]\
                                    for i in range(len(decoder_grads))]
                     seg_weight_grad += seg_weight_grad/num_tasks
-                self.optimizer_decoder.zero_grad()
-                self.optimizer_seg_network.zero_grad()
-                i = 0
-                for params in self.decoder.parameters():
-                    params.grad = total_grads[i]
-                    i += 1
-                self.seg_weight.grad = seg_weight_grad
-                self.optimizer_decoder.step()
-                self.optimizer_seg_network.step()
             mean_iou_dict[classes[batch]] = mean_iou
             total_val_loss.append(val_loss)
-            
+
+        if mode == "meta_train":
+            self.optimizer_decoder.zero_grad()
+            self.optimizer_seg_network.zero_grad()
+            i = 0
+            for params in self.decoder.parameters():
+                params.grad = total_grads[i]
+                i += 1
+            self.seg_weight.grad = seg_weight_grad
+            self.optimizer_decoder.step()
+            self.optimizer_seg_network.step()
         total_val_loss = float(sum(total_val_loss)/len(total_val_loss))
         stats_data = {
             "mode": mode,
@@ -429,5 +429,8 @@ def load_model(config):
 
 
 config = load_config()
+finetuning_lr = config.hyperparameters.finetuning_lr
+num_steps = config.hyperparameters.num_finetuning_steps
 dropout_rate = config.hyperparameters.dropout_rate
 outer_loop_lr = config.hyperparameters.outer_loop_lr
+bs = config.hyperparameters.evaluation_bs

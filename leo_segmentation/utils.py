@@ -25,7 +25,7 @@ def load_config(config_path: str = "config.json"):
     return edict(config)
 
 
-def meta_classes_selector(config, dataset):
+def meta_classes_selector(config, dataset, shuffle_classes=False):
     """ Returns a dictionary containing classes for meta_train, meta_val,
         and meta_test_splits
         Args:

@@ -159,8 +159,6 @@ class Datagenerator(Dataset):
             mask_paths = [i.replace("images", "masks") for i in img_paths]
             mask_paths = [i.replace("jpg", "png") if not os.path.exists(i)
                           else i for i in mask_paths]
-            mask_paths = [i.replace("png", "jpg") if not os.path.exists(i)
-                          else i for i in mask_paths]
             # Create a list in the case only one image path is created
             img_paths = [img_paths] if type(img_paths) == str else img_paths
             mask_paths = [mask_paths] if type(mask_paths) == str else mask_paths
