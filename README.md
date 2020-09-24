@@ -1,10 +1,9 @@
 # Latent Embedding Optimization for Few-shot Segmentation
 
-This repository is the code base for the project titled Latent Embedding Optimization for Few-shot Segmentation. 
-The project is undertaken by Gopika Sudhakaran, Temiloluwa Adeoti, Jennifer Deborah and Istiaque Mannafee. This project is based on the paper "Meta-Learning with Latent Embedding Optimization" by Rusu et. al. 
+In this project, Meta-Learning is deployed to solve the Few-shot Segmentation problem.
+Inspired by the paper "Meta-Learning with Latent Embedding Optimization" by Rusu et. al., the goal is to translate the successes of Optimization-based
+Meta-Learning for the Few-shot Classification problem to Segmentation.
 
-# Run Code base
-- Create a python virtual environment and install Pytorch 1.5.1 following guidelines at https://pytorch.org/
-- Default pytorch version uses gpu
-- To Run the code from a jupyter notebook 
-    - Install your virutal environment as an using `ipython kernel install --user --name=<kernel_name>`
+## Team members
+The project is undertaken by Temiloluwa Adeoti, Gopika Sudhakaran, Istiaque Mannafee, Jennifer Deborah
+
