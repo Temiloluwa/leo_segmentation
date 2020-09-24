@@ -130,7 +130,7 @@ class LEO(nn.Module):
         pred = F.conv2d(o, weight, padding=1)
         return pred
 
-    def forward(self, x, latents=None):
+    def forward(self, x, latents=None, weight=None):
         """ Performs a forward pass through the entire network
             - The Autoencoder generates features using the inputs
             - Features are concatenated with the inputs
@@ -142,14 +142,20 @@ class LEO(nn.Module):
                 latents(torch.Tensor): output of the bottleneck
                 features(torch.Tensor): output of the decoder
                 pred(torch.Tensor): predicted logits
+                weight(torch.Tensor): segmentation weights
         """
         encoder_outputs = self.forward_encoder(x)
         if latents is not None:
             encoder_outputs = encoder_outputs[:4] + [latents]
         else:
             latents = encoder_outputs[-1]
+
+        if weight is not None:
+            seg_weight = weight
+        else:
+            seg_weight = self.seg_weight
         features = self.forward_decoder(encoder_outputs)
-        pred = self.forward_segnetwork(features, x, self.seg_weight)
+        pred = self.forward_segnetwork(features, x, seg_weight)
         return latents, features, pred
     
     def leo_inner_loop(self, x, y):
@@ -225,10 +231,8 @@ class LEO(nn.Module):
                 for _img_path, _mask_path in tqdm(zip(val_img_paths, val_mask_paths)):
                     input_img = prepare_inputs(numpy_to_tensor(list_to_tensor(_img_path, img_transformer)))
                     input_mask = numpy_to_tensor(list_to_tensor(_mask_path, mask_transformer))
-                    encoder_outputs = self.forward_encoder(input_img)
-                    features = self.forward_decoder(encoder_outputs)
-                    prediction = self.forward_segnetwork(features, input_img, weight)
-                    val_loss =  self.loss_fn(prediction, input_mask.long()).item()
+                    _, _, prediction = self.forward(input_img, weight=weight)
+                    val_loss = self.loss_fn(prediction, input_mask.long()).item()
                     mean_iou = calc_iou_per_class(prediction, input_mask)
                     mean_ious.append(mean_iou)
                     val_losses.append(val_loss)
@@ -311,7 +315,7 @@ def save_model(model, optimizer, config, stats):
     is true else checkpoints that already exists are automatically deleted
 
     Args:
-        model - trained model       
+        model - trained model
         optimizer - optimized weights
         config - global config
         stats - dictionary containing stats for the current episode
@@ -363,6 +367,7 @@ def save_model(model, optimizer, config, stats):
                 if trials == 3:
                     raise ValueError("Supply the correct answer to the question")
 
+
 def load_model():
 
     """
@@ -371,8 +376,8 @@ def load_model():
         config - global config
         **************************************************
         Note: The episode key in the experiment dict
-        implies the checkpoint that should be loaded 
-        when the model resumes training. If episode is 
+        implies the checkpoint that should be loaded
+        when the model resumes training. If episode is
         -1, then the latest model is loaded else it loads
         the checkpoint at the supplied episode
         *************************************************
@@ -382,7 +387,7 @@ def load_model():
         stats: stats for the last saved model
     """
     experiment = config.experiment
-    model_dir  = os.path.join(config.data_path, "models", "experiment_{}"\
+    model_dir = os.path.join(config.data_path, "models", "experiment_{}"
                  .format(experiment.number))
     
     checkpoints = os.listdir(model_dir)

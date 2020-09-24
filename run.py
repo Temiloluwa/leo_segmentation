@@ -75,7 +75,7 @@ def train_model(config, dataset):
                                               transformers, mode="meta_val")
             train_stats.disp_stats()
         episode_time = (time.time() - start_time)/60
-        log_msg = f"Episode: {episode}, Episode Time: {episode_time:0.03f} minutes"
+        log_msg = f"Episode: {episode}, Episode Time: {episode_time:0.03f} minutes\n"
         print(log_msg)
         train_logger.debug(log_msg)
         episode_times.append(episode_time)
