@@ -252,7 +252,7 @@ def plot_masks(mask_data, ground_truth=False):
         plt.imshow(np.mean(mask_data.numpy())/2 + 0.5, cmap="gray")
 
 
-def print_to_string_io(variable_to_print, pretty_print=True):
+def print_to_string_io(variable_to_print, pretty_print=True, logger=None):
     """ Prints value to string_io and returns value"""
     previous_stdout = sys.stdout
     sys.stdout = string_buffer = StringIO()
@@ -261,6 +261,8 @@ def print_to_string_io(variable_to_print, pretty_print=True):
         pp.pprint(variable_to_print)
     else:
         print(variable_to_print)
+    if logger is not None:
+        logger.debug(variable_to_print)
     sys.stdout = previous_stdout
     string_value = string_buffer.getvalue()
     return string_value
