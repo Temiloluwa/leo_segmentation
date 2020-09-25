@@ -76,24 +76,23 @@ def train_model(config, dataset):
             train_stats.disp_stats()
         episode_time = (time.time() - start_time)/60
         log_msg = f"Episode: {episode}, Episode Time: {episode_time:0.03f} minutes\n"
-        print(log_msg)
-        train_logger.debug(log_msg)
+        print_to_string_io(log_msg, False, train_logger)
         episode_times.append(episode_time)
         del metadata
         gc.collect()
         torch.cuda.empty_cache()
         torch.cuda.ipc_collect()
     model_and_params = leo, None, train_stats
-    leo = predict_model(config, dataset, model_and_params, transformers)
+    leo = predict_model(dataset, model_and_params, transformers)
     log_msg = f"Total Model Training Time {np.sum(episode_times):0.03f} minutes"
-    print(log_msg)
-    train_logger.debug(log_msg)
+    print_to_string_io(log_msg, False, train_logger)
     train_logger.debug("End time")
     return leo
 
 
-def predict_model(config, dataset, model_and_params, transformers):
+def predict_model(dataset, model_and_params, transformers):
     """Implement Predicion on Meta-Test"""
+    config = load_config()
     leo, _, train_stats = model_and_params
     dataloader = Datagenerator(dataset, data_type="meta_test")
     train_stats.set_mode("meta_test")
