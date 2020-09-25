@@ -286,10 +286,9 @@ class LEO(nn.Module):
         if mode == "meta_train":
             self.optimizer_decoder.zero_grad()
             self.optimizer_seg_network.zero_grad()
-            i = 0
-            for params in self.decoder.parameters():
+            
+            for i, params in enumerate(self.decoder.parameters()):
                 params.grad = total_grads[i]
-                i += 1
             self.seg_weight.grad = seg_weight_grad
             self.optimizer_decoder.step()
             self.optimizer_seg_network.step()
