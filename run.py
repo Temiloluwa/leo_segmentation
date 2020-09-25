@@ -2,7 +2,6 @@ import sys
 import os
 import argparse
 import time
-import gc
 import torch
 import torch.optim
 import numpy as np
@@ -78,10 +77,7 @@ def train_model(config, dataset):
         log_msg = f"Episode: {episode}, Episode Time: {episode_time:0.03f} minutes\n"
         print_to_string_io(log_msg, False, train_logger)
         episode_times.append(episode_time)
-        del metadata
-        gc.collect()
-        torch.cuda.empty_cache()
-        torch.cuda.ipc_collect()
+        
     model_and_params = leo, None, train_stats
     leo = predict_model(dataset, model_and_params, transformers)
     log_msg = f"Total Model Training Time {np.sum(episode_times):0.03f} minutes"
