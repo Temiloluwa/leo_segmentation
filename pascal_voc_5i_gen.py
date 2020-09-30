@@ -1,28 +1,6 @@
 import os
 import shutil
 
-# initialize all classes as train classes
-train_classes = ['aeroplane',
-            'bicycle', 
-            'bird', 
-            'boat', 
-            'bottle',
-            'bus',
-            'car', 
-            'cat',
-            'chair',
-            'cow', 
-            'diningtable', 
-            'dog',
-            'horse',
-            'motorbike', 
-            'person',
-            'pottedplant', 
-            'sheep', 
-            'sofa', 
-            'train', 
-            'tvmonitor']
-
 def read_file(file_path):
     with open(file_path, "r") as f:
         file_list = f.readlines()
@@ -30,8 +8,30 @@ def read_file(file_path):
     return file_list
 
 def generate_data(test_fold=0):
+    # initialize all classes as train classes
+    train_classes = ['aeroplane',
+                'bicycle', 
+                'bird', 
+                'boat', 
+                'bottle',
+                'bus',
+                'car', 
+                'cat',
+                'chair',
+                'cow', 
+                'diningtable', 
+                'dog',
+                'horse',
+                'motorbike', 
+                'person',
+                'pottedplant', 
+                'sheep', 
+                'sofa', 
+                'train', 
+                'tvmonitor']
+
     # select validation classes
-    val_classes = train_classes[test_fold*4: test_fold*4+5]
+    val_classes = train_classes[test_fold*5: (test_fold+1)*5]
     # remove validation classes from train classes
     for i in val_classes:
         train_classes.remove(i)
@@ -40,8 +40,8 @@ def generate_data(test_fold=0):
 
     def transfer_data(train_or_val, classes, train_or_val_list):
         for _class in classes:
-            dest_img_dir = os.path.join(f"pascal_5i_fold_{test_fold}", f"{train_or_val}", "images", f"{_class}")
-            dest_mask_dir = os.path.join(f"pascal_5i_fold_{test_fold}", f"{train_or_val}", "masks", f"{_class}")
+            dest_img_dir = os.path.join(f"pascal_5i_fold_{test_fold}", "images", f"{_class}")
+            dest_mask_dir = os.path.join(f"pascal_5i_fold_{test_fold}", "masks", f"{_class}")
             src_img_dir = os.path.join("pascal_segmentation", f"{_class}", f"{train_or_val}", "images")
             src_mask_dir = os.path.join("pascal_segmentation", f"{_class}", f"{train_or_val}", "masks")
 
@@ -61,4 +61,5 @@ def generate_data(test_fold=0):
 voc_imgsets = os.path.join("VOCdevkit", "VOC2012", "ImageSets", "Segmentation")
 
 if __name__ == "__main__":
-    generate_data(test_fold=3)
+    for i in range(4):
+        generate_data(test_fold=i)
