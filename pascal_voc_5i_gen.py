@@ -45,7 +45,7 @@ def generate_data(test_fold=0):
             src_img_dir = os.path.join("pascal_segmentation", f"{_class}", f"{train_or_val}", "images")
             src_mask_dir = os.path.join("pascal_segmentation", f"{_class}", f"{train_or_val}", "masks")
 
-            if not os.path.exists(os.path.join("pascal_5i_fold_{test_fold}", f"{_class}")):
+            if not os.path.exists(dest_mask_dir):
                 os.makedirs(dest_img_dir)
                 os.makedirs(dest_mask_dir)
             data_root = os.path.join(src_img_dir)
@@ -61,4 +61,4 @@ def generate_data(test_fold=0):
 voc_imgsets = os.path.join("VOCdevkit", "VOC2012", "ImageSets", "Segmentation")
 
 if __name__ == "__main__":
-    generate_data(test_fold=0)
+    generate_data(test_fold=3)
