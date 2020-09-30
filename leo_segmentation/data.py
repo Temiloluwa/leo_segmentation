@@ -244,10 +244,12 @@ class TrainingStats:
         
         mean_iou_dict = self.mean_iou_dict.copy()
         mean_iou_dict.pop("episode")
+        average_iou = np.mean([v for _, v in mean_iou_dict.items()])
         mean_iou_string = print_to_string_io(mean_iou_dict, True)
         msg = f"mode: {self.mode}, episode: {self.episode: 03d}, "\
             + f"total_val_loss: {self.total_val_loss:2f}, "\
-            + f"\nval_mean_iou:{mean_iou_string}"
+            + f"\nval_mean_iou:{mean_iou_string} "\
+            + f"Average of all ious:{average_iou}"
         self.stats_msg = msg
         if self.mode == "meta_train":
             train_logger.debug(self.stats_msg)

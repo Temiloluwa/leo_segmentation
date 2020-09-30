@@ -18,7 +18,7 @@ try:
         raise NameError("Move to except branch")
 except NameError:
     parser = argparse.ArgumentParser(description='Specify dataset')
-    parser.add_argument("-d", "--dataset", type=str, default="pascal_voc_raw")
+    parser.add_argument("-d", "--dataset", type=str, default="pascal_5i_fold_0")
     args = parser.parse_args()
     dataset = args.dataset
 

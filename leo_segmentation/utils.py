@@ -35,6 +35,14 @@ def meta_classes_selector(config, dataset, shuffle_classes=False):
         Returns:
             meta_classes_splits (dict): classes all data types
     """
+
+    def extract_splits(classes, meta_split):
+        """ Returns class splits for a meta train, val or test """
+        class_split = []
+        for i in range(len(meta_split)//2):
+            class_split.extend(classes[meta_split[i*2]:meta_split[i*2+1]])
+        return class_split
+
     splits = config.data_params.meta_class_splits
     if dataset in config.datasets:
         data_path = os.path.join(os.path.dirname(__file__), config.data_path,
@@ -46,12 +54,10 @@ def meta_classes_selector(config, dataset, shuffle_classes=False):
                                  "data", f"{dataset}", "images"))
             if shuffle_classes:
                 random.shuffle(classes)
-            meta_classes_splits = {"meta_train": classes[splits.meta_train[0]:
-                                                         splits.meta_train[1]],
-                                   "meta_val": classes[splits.meta_val[0]:
-                                                       splits.meta_val[1]],
-                                   "meta_test": classes[splits.meta_test[0]:
-                                                        splits.meta_test[1]]}
+            
+            meta_classes_splits = {"meta_train": extract_splits(classes, splits.meta_train),
+                                   "meta_val": extract_splits(classes, splits.meta_val),
+                                   "meta_test": extract_splits(classes, splits.meta_test)}
 
             total_count = len(set(meta_classes_splits["meta_train"] +
                               meta_classes_splits["meta_val"] +
