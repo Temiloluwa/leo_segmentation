@@ -98,10 +98,12 @@ def load_pickled_data(data_path):
         data = pickle.load(f)
     return data
 
+
 def load_yaml(data_path):
     """Reads a yaml file"""
     with open(data_path, 'r') as f:
         return  yaml.safe_load(f)
+
 
 def list_to_tensor(_list, image_transformer):
     """Converts list of paths to pytorch tensor"""
@@ -109,6 +111,7 @@ def list_to_tensor(_list, image_transformer):
         return [image_transformer(Image.open(i)) for i in _list]
     else:
         return np.expand_dims(image_transformer(Image.open(_list)), 0)
+
 
 def create_log(config):
     """ Create Log File """
@@ -123,17 +126,6 @@ def create_log(config):
     msg = "********************* Val stats *********************\n"
     log_data(msg, log_filename, overwrite=True)
     return None
-
-def loggers(config):
-    """Returns train and validation loggers"""
-    config_dict = load_yaml(os.path.join(project_root, "logging.yaml"))
-    create_log(config)
-    config_dict["handlers"]["trainStatsHandler"]["filename"] = os.path.join(model_dir, "train_log.txt")
-    config_dict["handlers"]["valStatsHandler"]["filename"] = os.path.join(model_dir, "val_log.txt")
-    logging.config.dictConfig(config_dict)
-    train_logger = logging.getLogger("train")
-    val_logger = logging.getLogger("val")
-    return train_logger, val_logger
 
 
 def load_yaml(data_path):
@@ -191,6 +183,7 @@ def check_experiment(config):
         (bool)
     """
     # implement logic to confirm if an experiment already exists
+    create_log(config)
     return None
 
 def get_named_dict(metadata, batch):

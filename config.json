@@ -3,27 +3,27 @@
     "use_gpu":true,
     "checkpoint_interval":10000,
     "display_stats_interval":100,
-    "meta_val_interval":1,
+    "meta_val_interval":10,
     "dtype":"float32",
     "data_path":"data",
     "datasets":["pascal_5i_fold_0", "pascal_5i_fold_1", "pascal_5i_fold_2", "pascal_5i_fold_3", "fss1000"],
 	"data_params":{
         "num_classes":1,
-        "img_dims":{"channels":3, "height":224, "width": 224},
+        "img_dims":{"channels":3, "height":384, "width": 512},
         "meta_class_splits":{"meta_train":[0, 5, 10, 20], "meta_val":[5, 10], "meta_test":[5, 10]},
         "n_train_per_class":{"meta_train":5, "meta_val":5, "meta_test":5},
         "n_val_per_class":{"meta_train":5, "meta_val":"rest", "meta_test":"rest"},
         "num_tasks":{"meta_train":5, "meta_val":5, "meta_test":5}
     },
-    "experiment":{"number":17, "episode":1, "description":"leo_maml_tf-pascal_fold_1", "prompt_deletion":false},
+    "experiment":{"number":18, "episode":1, "description":"leo_maml_tf-pascal_fold_1", "prompt_deletion":false},
     "hyperparameters":{
         "base_num_covs":8,
-        "outer_loop_lr":1e-3,
-        "inner_loop_lr":1e-3,
-        "finetuning_lr":1e-3,
-        "dropout_rate":0.2,
-        "num_finetuning_steps":5,
-        "num_adaptation_steps":5,
+        "outer_loop_lr":1e-2,
+        "inner_loop_lr":1e-2,
+        "finetuning_lr":1e-2,
+        "dropout_rate":0.25,
+        "num_finetuning_steps":10,
+        "num_adaptation_steps":10,
         "episodes":300
     }
 }
