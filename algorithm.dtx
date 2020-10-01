@@ -1,0 +1,45 @@
+\title{Leo-FOMAML Segmentation Algorithm}
+\documentclass[10pt]{article}
+\usepackage{fullpage}
+\usepackage{times}
+\usepackage{fancyhdr,graphicx,amsmath,amssymb}
+\usepackage[ruled,vlined]{algorithm2e}
+\DontPrintSemicolon
+\include{pythonlisting}
+\SetKwInput{KwRequire}{Require}
+\begin{document}
+
+\begin{algorithm}[h]
+\KwRequire{Training meta-set $S^{tr} \in T$}
+\KwRequire{Frozen Encoder weights $\phi_{e}$} 
+\KwRequire{Learning Rates $\alpha, \gamma, \eta$ }
+\nl Randomly initialize $\phi_{d}$, $\phi_{seg}$ \;
+\nl \While{not converged}{
+\nl    \For{number of tasks}{
+\nl     Sample task data $(D^{tr}, D^{val})\sim S^{tr}$\;
+\nl     Encode $D^{tr}$ to $z$ using $g_{\phi_{e}}$\;
+\nl     Decode $z$ to features ${Q^{tr}}$ using $g_{\phi_{d}}$ \;
+\nl     {\bf Let} $X^{tr} \gets $ channelwise concatenation $\{D^{tr}, Q^{tr}\}$\;
+\nl     Initialize $z' = z, \phi_{seg}' = \phi_{seg}$\;
+\nl         \For{ number of inner-loop steps}{
+\nl                Compute training loss $L_{X^{tr}}^{tr}(f_{\phi_{seg}'})$\;
+\nl                Perform gradient update w.r.t. $z'$:\;
+\nl              $z' \gets z' - \alpha\nabla_{z'}L_{X^{tr}}^{tr}(f_{\phi_{seg}'})$\;
+\nl         Decode $z'$ to obtain $Q^{tr}$ using $g_{\phi_{d}}$\;
+            }
+\nl         \For{ number of fine-tuning steps}{
+\nl                Compute training loss $L_{X^{tr}}^{tr}(f_{\phi_{seg}'})$\;
+\nl                Perform gradient update w.r.t. $\phi_{seg}'$:\;
+\nl              $\phi_{seg}' \gets \phi_{seg}' - \gamma\nabla_{\phi_{seg}'}L_{X^{tr}}^{tr}(f_{\phi_{seg}'})$\;
+            }
+\nl                Compute validation loss $L_{X^{val}}^{val}(f_{\phi_{seg}'})$\;
+
+     }
+\nl       Perform gradient update w.r.t. $\phi_{seg}$:\;
+\nl              $\phi_{seg} \gets \phi_{seg} - \eta\nabla_{\phi_{seg}'} \sum_{}^{n} L_{X^{val}}^{val}(f_{\phi_{seg}'}$)\;
+\nl       Perform gradient update w.r.t. $\phi_{d}$:\;
+\nl              $\phi_{d} \gets \phi_{d} - \eta\nabla_{\phi_{d}}\sum_{}^{n}L_{X^{val}}^{val}(f_{\phi_{seg}'}$)\;
+
+  }
+\caption{{\bf LEO-FOMAML Segmentation Algorithm} \label{lEO-FOMAML}}
+\end{algorithm}

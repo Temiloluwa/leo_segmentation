@@ -1,14 +1,21 @@
-import os, torch, numpy as np
+import os
+import torch
+import numpy as np
 import tensorflow as tf
 from tqdm import tqdm
 from .utils import display_data_shape, get_named_dict, calc_iou_per_class,\
     log_data, load_config, list_to_tensor, model_dir
 
+
+config = load_config()
+hyp = config.hyperparameters
+
+
 def mobilenet_v2_encoder(img_dims):
     """ Initialize the encoder using weights from mobilenetv2"""
     num_channels, img_height, img_width = img_dims
     base_model = tf.keras.applications.MobileNetV2(
-        weights="imagenet",  
+        weights="imagenet", 
         input_shape=(img_height, img_width, num_channels), 
         include_top=False,
     )  
@@ -24,26 +31,27 @@ def mobilenet_v2_encoder(img_dims):
     encoder.trainable = False
     return encoder
 
+
 class Decoder(tf.keras.Model):
     """ Decoder for the LEO model"""
-    def __init__(self, dropout_probs=0.25):
+    def __init__(self, dropout_probs=hyp.dropout_rate):
         super(Decoder, self).__init__()
-        self.conv1 = tf.keras.layers.Conv2D(filters=8, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-        self.conv1b = tf.keras.layers.Conv2D(filters=8, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-        self.conv2 = tf.keras.layers.Conv2D(filters=8*2, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-        self.conv2b = tf.keras.layers.Conv2D(filters=8*2, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-        self.conv3 = tf.keras.layers.Conv2D(filters=8*3, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-        self.conv3b = tf.keras.layers.Conv2D(filters=8*3, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-        self.conv4 = tf.keras.layers.Conv2D(filters=8*4, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-        self.conv4b = tf.keras.layers.Conv2D(filters=8*4, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-        self.conv5 = tf.keras.layers.Conv2D(filters=8*5, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-        self.conv5b = tf.keras.layers.Conv2D(filters=8*5, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv1 = tf.keras.layers.Conv2D(filters=hyp.base_num_covs, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv1b = tf.keras.layers.Conv2D(filters=hyp.base_num_covs, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv2 = tf.keras.layers.Conv2D(filters=hyp.base_num_covs*2, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv2b = tf.keras.layers.Conv2D(filters=hyp.base_num_covs*2, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv3 = tf.keras.layers.Conv2D(filters=hyp.base_num_covs*3, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv3b = tf.keras.layers.Conv2D(filters=hyp.base_num_covs*3, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv4 = tf.keras.layers.Conv2D(filters=hyp.base_num_covs*4, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv4b = tf.keras.layers.Conv2D(filters=hyp.base_num_covs*4, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv5 = tf.keras.layers.Conv2D(filters=hyp.base_num_covs*5, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv5b = tf.keras.layers.Conv2D(filters=hyp.base_num_covs*5, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
         self.convfinal = tf.keras.layers.Conv2D(filters=2, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-        self.upsample1 = tf.keras.layers.Conv2DTranspose(8, 3, strides=2,padding='same')
-        self.upsample2 = tf.keras.layers.Conv2DTranspose(8*2, 3, strides=2,padding='same')
-        self.upsample3 = tf.keras.layers.Conv2DTranspose(8*3, 3, strides=2,padding='same')
-        self.upsample4 = tf.keras.layers.Conv2DTranspose(8*4, 3, strides=2,padding='same')
-        self.upsample5 = tf.keras.layers.Conv2DTranspose(8*5, 3, strides=2,padding='same')
+        self.upsample1 = tf.keras.layers.Conv2DTranspose(hyp.base_num_covs, 3, strides=2,padding='same')
+        self.upsample2 = tf.keras.layers.Conv2DTranspose(hyp.base_num_covs*2, 3, strides=2,padding='same')
+        self.upsample3 = tf.keras.layers.Conv2DTranspose(hyp.base_num_covs*3, 3, strides=2,padding='same')
+        self.upsample4 = tf.keras.layers.Conv2DTranspose(hyp.base_num_covs*4, 3, strides=2,padding='same')
+        self.upsample5 = tf.keras.layers.Conv2DTranspose(hyp.base_num_covs*5, 3, strides=2,padding='same')
         self.concat = tf.keras.layers.Concatenate()
         self.dropout1 = tf.keras.layers.Dropout(dropout_probs)
         self.dropout2 = tf.keras.layers.Dropout(dropout_probs)
@@ -77,12 +85,13 @@ class Decoder(tf.keras.Model):
         x = self.conv5b(x)
         output = self.upsample5(x)
         return output
-    
-class LEO:
+
+
+class LEO(tf.keras.Model):
     """
     contains functions to perform latent embedding optimization
     """
-    def __init__(self, config, mode="meta_train"):
+    def __init__(self, mode="meta_train"):
         super(LEO, self).__init__()
         img_dims = config.data_params.img_dims
         self.config = config
@@ -231,8 +240,8 @@ class LEO:
             mean_iou = np.mean(mean_ious)
             val_loss = np.mean(val_losses)
         return mean_iou, val_loss
-        
-        
+         
+         
     def compute_loss(self, metadata, train_stats, transformers, mode="meta_train"):
         """
             Performs meta optimization across tasks
@@ -287,6 +296,7 @@ class LEO:
         train_stats.update_stats(**stats_data)
         return total_val_loss, train_stats
 
+
 #TO-DO: Change from pytorch to tensorflow
 def save_model(model, optimizer, config, stats):
     """
@@ -298,7 +308,7 @@ def save_model(model, optimizer, config, stats):
     is true else checkpoints that already exists are automatically deleted
 
     Args:
-        model - trained model       
+        model - trained model
         optimizer - optimized weights
         config - global config
         stats - dictionary containing stats for the current episode
@@ -310,7 +320,6 @@ def save_model(model, optimizer, config, stats):
         'episode': stats.episode,
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
-        'kl_loss': stats.kl_loss,
         'total_val_loss': stats.total_val_loss
     }
 
@@ -356,8 +365,8 @@ def load_model(config):
         config - global config
         **************************************************
         Note: The episode key in the experiment dict
-        implies the checkpoint that should be loaded 
-        when the model resumes training. If episode is 
+        implies the checkpoint that should be loaded
+        when the model resumes training. If episode is
         -1, then the latest model is loaded else it loads
         the checkpoint at the supplied episode
         *************************************************
@@ -375,23 +384,20 @@ def load_model(config):
     checkpoint = torch.load(checkpoint_path)
 
     log_filename = os.path.join(model_dir, "model_log.txt")
-    msg =  f"\n*********** checkpoint {episode} was loaded **************" 
+    msg = f"\n*********** checkpoint {episode} was loaded **************" 
     log_data(msg, log_filename)
     
-    leo = LEO(config)
-    optimizer = torch.optim.Adam(leo.parameters(), lr=config.hyperparameters.outer_loop_lr)
+    leo = LEO()
+    optimizer = torch.optim.Adam(leo.parameters(), lr=hyp.outer_loop_lr)
     leo.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     mode = checkpoint['mode']
     total_val_loss = checkpoint['total_val_loss']
-    kl_loss = checkpoint['kl_loss']
-
+  
     stats = {
         "mode": mode,
         "episode": episode,
-        "kl_loss": kl_loss,
         "total_val_loss": total_val_loss
         }
 
     return leo, optimizer, stats
-

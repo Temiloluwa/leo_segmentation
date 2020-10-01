@@ -1,3 +1,3 @@
-from . import model, data, utils
+from leo_segmentation import model, data, utils
 
 __all__ = ["model", "data", "utils"]

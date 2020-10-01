@@ -2,10 +2,10 @@ import sys
 import os
 import argparse
 import time
+import torch
+import torch.optim
 import numpy as np
-import tensorflow as tf
 from easydict import EasyDict as edict
-sys.path.append(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 from leo_segmentation.data import Datagenerator, TrainingStats
 from leo_segmentation.model import LEO, load_model, save_model
 from leo_segmentation.utils import load_config, check_experiment,\
@@ -18,19 +18,18 @@ try:
         raise NameError("Move to except branch")
 except NameError:
     parser = argparse.ArgumentParser(description='Specify dataset')
-    parser.add_argument("-d", "--dataset", type=str, default="pascal_voc_raw")
+    parser.add_argument("-d", "--dataset", type=str, default="pascal_5i_fold_0")
     args = parser.parse_args()
     dataset = args.dataset
 
 
-# TO-DO change to tensorflow
-def load_model_and_params(config):
+def load_model_and_params():
     """Loads model and accompanying saved parameters"""
-    leo, optimizer, stats = load_model(config)
+    leo, optimizer, stats = load_model()
     episodes_completed = stats["episode"]
     leo.eval()
     leo = leo.to(device)
-    train_stats = TrainingStats(config)
+    train_stats = TrainingStats()
     train_stats.set_episode(episodes_completed)
     train_stats.update_stats(**stats)
     return leo, optimizer, train_stats
@@ -38,58 +37,60 @@ def load_model_and_params(config):
 
 def train_model(config, dataset):
     """Trains Model"""
+    # writer = SummaryWriter(os.path.join(config.data_path, "models",
+    # str(config.experiment.number)))
+    device = torch.device("cuda:0" if torch.cuda.is_available()
+                          and config.use_gpu else "cpu")
     if check_experiment(config):
-        leo, optimizer, train_stats = load_model_and_params(config)
+        # Load saved model and parameters
+        leo, optimizer, train_stats = load_model_and_params()
     else:
-        leo = LEO(config)
-        train_stats = TrainingStats(config)
+        # Train a fresh model
+        leo = LEO()
+        train_stats = TrainingStats()
         episodes_completed = 0
-        train_stats = TrainingStats(config)
-        tf.keras.backend.clear_session()
-
+    
     episodes = config.hyperparameters.episodes
     episode_times = []
-    train_logger.debug(f"Start time")
+    train_logger.debug("Start time")
     for episode in range(episodes_completed+1, episodes+1):
         start_time = time.time()
         train_stats.set_episode(episode)
         train_stats.set_mode("meta_train")
-        dataloader = Datagenerator(config, dataset, data_type="meta_train")
-        img_transformer = dataloader.transform_image
-        mask_transformer = dataloader.transform_mask
-        transformers = (img_transformer, mask_transformer)
+        # meta-train stage
+        dataloader = Datagenerator(dataset, data_type="meta_train")
         metadata = dataloader.get_batch_data()
+        transformers = (dataloader.transform_image, dataloader.transform_mask)
         _, train_stats = leo.compute_loss(metadata, train_stats, transformers)
-
         if episode % config.checkpoint_interval == 0:
-            # save model
-            pass
+            save_model(leo, optimizer, config,
+                       edict(train_stats.get_latest_stats()))
+        # meta-val stage
         if episode % config.meta_val_interval == 0:
-            dataloader = Datagenerator(config, dataset, data_type="meta_val")
+            dataloader = Datagenerator(dataset, data_type="meta_val")
             train_stats.set_mode("meta_val")
             metadata = dataloader.get_batch_data()
             _, train_stats = leo.compute_loss(metadata, train_stats,
                                               transformers, mode="meta_val")
             train_stats.disp_stats()
         episode_time = (time.time() - start_time)/60
-        log_msg = print_to_string_io(f"Episode: {episode}, Episode Time:\
-            {episode_time:0.03f} minutes", False)
-        train_logger.debug(log_msg)
+        log_msg = f"Episode: {episode}, Episode Time: {episode_time:0.03f} minutes\n"
+        print_to_string_io(log_msg, False, train_logger)
         episode_times.append(episode_time)
-
+        
     model_and_params = leo, None, train_stats
-    leo = predict_model(config, dataset, model_and_params, transformers)
-    log_msg = print_to_string_io(f"Total Model Training Time \
-        {np.sum(episode_times):0.03f} minutes", False)
-    train_logger.debug(log_msg)
-    train_logger.debug(f"End time")
+    leo = predict_model(dataset, model_and_params, transformers)
+    log_msg = f"Total Model Training Time {np.sum(episode_times):0.03f} minutes"
+    print_to_string_io(log_msg, False, train_logger)
+    train_logger.debug("End time")
     return leo
 
 
-def predict_model(config, dataset, model_and_params, transformers):
+def predict_model(dataset, model_and_params, transformers):
     """Implement Predicion on Meta-Test"""
-    leo, _ , train_stats = model_and_params
-    dataloader = Datagenerator(config, dataset, data_type="meta_test")
+    config = load_config()
+    leo, _, train_stats = model_and_params
+    dataloader = Datagenerator(dataset, data_type="meta_test")
     train_stats.set_mode("meta_test")
     metadata = dataloader.get_batch_data()
     _, train_stats = leo.compute_loss(metadata, train_stats, transformers,
@@ -111,20 +112,20 @@ def predict_model(config, dataset, model_and_params, transformers):
 
 
 def main():
-    config = load_config()
     if config.train:
         train_model(config, dataset)
     else:
         def evaluate_model():
-            dataloader = Datagenerator(config, dataset, data_type="meta_train")
+            dataloader = Datagenerator(dataset, data_type="meta_train")
             img_transformer = dataloader.transform_image
             mask_transformer = dataloader.transform_mask
             transformers = (img_transformer, mask_transformer)
-            model_and_params = load_model_and_params(config)
-            return predict_model(config, dataset, model_and_params,
+            model_and_params = load_model_and_params()
+            return predict_model(dataset, model_and_params,
                                  transformers)
         evaluate_model()
 
 
 if __name__ == "__main__":
+    config = load_config()
     main()
