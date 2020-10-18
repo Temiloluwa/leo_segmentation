@@ -7,7 +7,7 @@ import torch.optim
 import numpy as np
 from easydict import EasyDict as edict
 from leo_segmentation.data import Datagenerator, TrainingStats
-from leo_segmentation.model import LEO, load_model, save_model
+from leo_segmentation.model import LEO, load_model, save_model, compute_loss
 from leo_segmentation.utils import load_config, check_experiment,\
     get_named_dict, log_data, load_yaml, train_logger, val_logger, \
     print_to_string_io, save_pickled_data, model_dir
@@ -61,7 +61,7 @@ def train_model(config, dataset):
         dataloader = Datagenerator(dataset, data_type="meta_train")
         metadata = dataloader.get_batch_data()
         transformers = (dataloader.transform_image, dataloader.transform_mask)
-        _, train_stats = leo.compute_loss(metadata, train_stats, transformers)
+        _, train_stats = compute_loss(leo, metadata, train_stats, transformers)
         if episode % config.checkpoint_interval == 0:
             save_model(leo, optimizer, config,
                        edict(train_stats.get_latest_stats()))
@@ -70,7 +70,7 @@ def train_model(config, dataset):
             dataloader = Datagenerator(dataset, data_type="meta_val")
             train_stats.set_mode("meta_val")
             metadata = dataloader.get_batch_data()
-            _, train_stats = leo.compute_loss(metadata, train_stats,
+            _, train_stats = compute_loss(leo, metadata, train_stats,
                                               transformers, mode="meta_val")
             train_stats.disp_stats()
         episode_time = (time.time() - start_time)/60
@@ -93,7 +93,7 @@ def predict_model(dataset, model_and_params, transformers):
     dataloader = Datagenerator(dataset, data_type="meta_test")
     train_stats.set_mode("meta_test")
     metadata = dataloader.get_batch_data()
-    _, train_stats = leo.compute_loss(metadata, train_stats, transformers,
+    _, train_stats = compute_loss(leo, metadata, train_stats, transformers,
                                       mode="meta_test")
     train_stats.disp_stats()
     experiment = config.experiment

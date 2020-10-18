@@ -13,6 +13,13 @@ from .utils import display_data_shape, get_named_dict, calc_iou_per_class,\
     prepare_inputs
 
 
+config = load_config()
+hyp = config.hyperparameters
+device = torch.device("cuda:0" if torch.cuda.is_available()
+                                   and config.use_gpu else "cpu")
+img_dims = config.data_params.img_dims
+IMG_DIMS = (img_dims.channels, img_dims.height, img_dims.width)
+
 class EncoderBlock(nn.Module):
     """ Encoder with pretrained backbone """
     def __init__(self):
@@ -86,13 +93,9 @@ class LEO(nn.Module):
     def __init__(self, mode="meta_train"):
         super(LEO, self).__init__()
         self.mode = mode
-        img_dims = config.data_params.img_dims
-        self.img_dims = (img_dims.channels, img_dims.height, img_dims.width)
         self.encoder = EncoderBlock()
-        self.device = torch.device("cuda:0" if torch.cuda.is_available()
-                                   and config.use_gpu else "cpu")
         seg_network = nn.Conv2d(hyp.base_num_covs*5 + 3, 2, kernel_size=3, stride=1, padding=1)
-        self.seg_weight = seg_network.weight.detach().to(self.device)
+        self.seg_weight = seg_network.weight.detach().to(device)
         self.seg_weight.requires_grad = True
         self.loss_fn = CrossEntropyLoss()
         self.optimizer_seg_network = torch.optim.Adam(
@@ -240,7 +243,8 @@ class LEO(nn.Module):
                 val_loss = np.mean(val_losses)
             return val_loss, None, None, mean_iou, weight
         
-    def compute_loss(self, metadata, train_stats, transformers, mode="meta_train"):
+
+def compute_loss(leo, metadata, train_stats, transformers, mode="meta_train"):
         """ Performs meta optimization across tasks
             returns the meta validation loss across tasks
             Args:
@@ -256,22 +260,23 @@ class LEO(nn.Module):
         # initialize decoder on the first episode
         if train_stats.episode == 1:
             data = get_named_dict(metadata, 0)
-            skip_features, latents = self.forward_encoder(data.tr_imgs)
-            self.decoder = DecoderBlock(skip_features, latents).to(self.device)
-            self.optimizer_decoder = torch.optim.Adam(
-              self.decoder.parameters(), lr=hyp.outer_loop_lr)
+            skip_features, latents = leo.forward_encoder(data.tr_imgs)
+            leo.decoder = DecoderBlock(skip_features, latents).to(device)
+            leo.optimizer_decoder = torch.optim.Adam(
+              leo.decoder.parameters(), lr=hyp.outer_loop_lr)
 
         if train_stats.episode % config.display_stats_interval == 1:
             display_data_shape(metadata)
+        
         classes = metadata[4]
         total_val_loss = []
         mean_iou_dict = {}
         total_grads = None
         for batch in range(num_tasks):
             data = get_named_dict(metadata, batch)
-            seg_weight_grad, features = self.leo_inner_loop(data.tr_imgs, data.tr_masks)
+            seg_weight_grad, features = leo.leo_inner_loop(data.tr_imgs, data.tr_masks)
             val_loss, seg_weight_grad, decoder_grads, mean_iou, _ = \
-                self.finetuning_inner_loop(data, features, seg_weight_grad,
+                leo.finetuning_inner_loop(data, features, seg_weight_grad,
                                            transformers, mode)
             if mode == "meta_train":
                 decoder_grads = [grad/num_tasks for grad in decoder_grads]
@@ -286,14 +291,14 @@ class LEO(nn.Module):
             total_val_loss.append(val_loss)
 
         if mode == "meta_train":
-            self.optimizer_decoder.zero_grad()
-            self.optimizer_seg_network.zero_grad()
+            leo.optimizer_decoder.zero_grad()
+            leo.optimizer_seg_network.zero_grad()
             
-            for i, params in enumerate(self.decoder.parameters()):
+            for i, params in enumerate(leo.decoder.parameters()):
                 params.grad = total_grads[i]
-            self.seg_weight.grad = seg_weight_grad
-            self.optimizer_decoder.step()
-            self.optimizer_seg_network.step()
+            leo.seg_weight.grad = seg_weight_grad
+            leo.optimizer_decoder.step()
+            leo.optimizer_seg_network.step()
         total_val_loss = float(sum(total_val_loss)/len(total_val_loss))
         stats_data = {
             "mode": mode,
@@ -417,5 +422,3 @@ def load_model():
     return leo, optimizer, stats
 
 
-config = load_config()
-hyp = config.hyperparameters
