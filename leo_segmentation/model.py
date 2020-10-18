@@ -163,6 +163,7 @@ class LEO(nn.Module):
         pred = self.forward_segnetwork(features, x, seg_weight)
         return latents, features, pred
     
+
     def leo_inner_loop(self, x, y):
         """ Performs innerloop optimization
             - It updates the latents taking gradients wrt the training loss
@@ -190,6 +191,7 @@ class LEO(nn.Module):
         seg_weight_grad = torch.autograd.grad(tr_loss, [self.seg_weight],
                                               create_graph=False)[0]
         return seg_weight_grad, features
+
 
     def finetuning_inner_loop(self, data_dict, tr_features, seg_weight_grad,
                               transformers, mode):
@@ -259,8 +261,8 @@ def compute_loss(leo, metadata, train_stats, transformers, mode="meta_train"):
         num_tasks = len(metadata[0])
         # initialize decoder on the first episode
         if train_stats.episode == 1:
-            data = get_named_dict(metadata, 0)
-            skip_features, latents = leo.forward_encoder(data.tr_imgs)
+            data_dict = get_named_dict(metadata, 0)
+            skip_features, latents = leo.forward_encoder(data_dict.tr_imgs)
             leo.decoder = DecoderBlock(skip_features, latents).to(device)
             leo.optimizer_decoder = torch.optim.Adam(
               leo.decoder.parameters(), lr=hyp.outer_loop_lr)
@@ -273,10 +275,10 @@ def compute_loss(leo, metadata, train_stats, transformers, mode="meta_train"):
         mean_iou_dict = {}
         total_grads = None
         for batch in range(num_tasks):
-            data = get_named_dict(metadata, batch)
-            seg_weight_grad, features = leo.leo_inner_loop(data.tr_imgs, data.tr_masks)
+            data_dict = get_named_dict(metadata, batch)
+            seg_weight_grad, features = leo.leo_inner_loop(data_dict.tr_imgs, data_dict.tr_masks)
             val_loss, seg_weight_grad, decoder_grads, mean_iou, _ = \
-                leo.finetuning_inner_loop(data, features, seg_weight_grad,
+                leo.finetuning_inner_loop(data_dict, features, seg_weight_grad,
                                            transformers, mode)
             if mode == "meta_train":
                 decoder_grads = [grad/num_tasks for grad in decoder_grads]
