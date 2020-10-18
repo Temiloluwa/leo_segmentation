@@ -27,8 +27,8 @@ class EncoderBlock(nn.Module):
             x = layer(x)
             if i in output_layers:
                 features.append(x)
-        features.append(x)
-        return features
+        latents = x
+        return features, latents
 
 
 def decoder_block(conv_in_size, conv_out_size):
@@ -53,28 +53,28 @@ class DecoderBlock(nn.Module):
     """
     Leo Decoder
     """
-    def __init__(self, encoder_outputs):
+    def __init__(self, skip_features, latents):
         super(DecoderBlock, self).__init__()
-        self.conv1 = decoder_block(encoder_outputs[-1].shape[1],
+        self.conv1 = decoder_block(latents.shape[1],
                                    hyp.base_num_covs*1)
-        self.conv2 = decoder_block(encoder_outputs[-2].shape[1] + hyp.base_num_covs*1, 
+        self.conv2 = decoder_block(skip_features[-1].shape[1] + hyp.base_num_covs*1, 
                                    hyp.base_num_covs*2)
-        self.conv3 = decoder_block(encoder_outputs[-3].shape[1] + hyp.base_num_covs*2,
+        self.conv3 = decoder_block(skip_features[-2].shape[1] + hyp.base_num_covs*2,
                                    hyp.base_num_covs*3)
-        self.conv4 = decoder_block(encoder_outputs[-4].shape[1] + hyp.base_num_covs*3,
+        self.conv4 = decoder_block(skip_features[-3].shape[1] + hyp.base_num_covs*3,
                                    hyp.base_num_covs*4)
-        self.up_final = nn.ConvTranspose2d(encoder_outputs[-5].shape[1] + hyp.base_num_covs*4,
+        self.up_final = nn.ConvTranspose2d(skip_features[-4].shape[1] + hyp.base_num_covs*4,
                                    hyp.base_num_covs*5, kernel_size=4, stride=2, padding=1)
         
-    def forward(self, encoder_outputs):
-        o = self.conv1(encoder_outputs[-1])
-        o = torch.cat([o, encoder_outputs[-2]], dim=1)
+    def forward(self, skip_features, latents):
+        o = self.conv1(latents)
+        o = torch.cat([o, skip_features[-1]], dim=1)
         o = self.conv2(o)
-        o = torch.cat([o, encoder_outputs[-3]], dim=1)
+        o = torch.cat([o, skip_features[-2]], dim=1)
         o = self.conv3(o)
-        o = torch.cat([o, encoder_outputs[-4]], dim=1)
+        o = torch.cat([o, skip_features[-3]], dim=1)
         o = self.conv4(o)
-        o = torch.cat([o, encoder_outputs[-5]], dim=1)
+        o = torch.cat([o, skip_features[-4]], dim=1)
         o = self.up_final(o)
         return o
 
@@ -105,14 +105,14 @@ class LEO(nn.Module):
 
     def forward_encoder(self, x):
         """ Performs forward pass through the encoder """
-        encoder_outputs = self.encoder(x)
-        if not encoder_outputs[-1].requires_grad:
-            encoder_outputs[-1].requires_grad = True
-        return encoder_outputs
+        skip_features, latents = self.encoder(x)
+        if not latents.requires_grad:
+            latents.requires_grad = True
+        return skip_features, latents
 
-    def forward_decoder(self, encoder_outputs):
+    def forward_decoder(self, skip_features, latents):
         """Performs forward pass through the decoder"""
-        output = self.decoder(encoder_outputs)
+        output = self.decoder(skip_features, latents)
         return output
 
     def forward_segnetwork(self, decoder_out, x, weight):
@@ -144,17 +144,19 @@ class LEO(nn.Module):
                 pred(torch.Tensor): predicted logits
                 weight(torch.Tensor): segmentation weights
         """
-        encoder_outputs = self.forward_encoder(x)
-        if latents is not None:
-            encoder_outputs = encoder_outputs[:4] + [latents]
+        
+        if latents is None:
+            skip_features, latents = self.forward_encoder(x)
+            self.skip_features = skip_features
         else:
-            latents = encoder_outputs[-1]
+            skip_features = self.skip_features
 
         if weight is not None:
             seg_weight = weight
         else:
             seg_weight = self.seg_weight
-        features = self.forward_decoder(encoder_outputs)
+
+        features = self.forward_decoder(skip_features, latents)
         pred = self.forward_segnetwork(features, x, seg_weight)
         return latents, features, pred
     
@@ -254,8 +256,8 @@ class LEO(nn.Module):
         # initialize decoder on the first episode
         if train_stats.episode == 1:
             data = get_named_dict(metadata, 0)
-            encoder_output = self.forward_encoder(data.tr_imgs)
-            self.decoder = DecoderBlock(encoder_output).to(self.device)
+            skip_features, latents = self.forward_encoder(data.tr_imgs)
+            self.decoder = DecoderBlock(skip_features, latents).to(self.device)
             self.optimizer_decoder = torch.optim.Adam(
               self.decoder.parameters(), lr=hyp.outer_loop_lr)
 
