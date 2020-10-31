@@ -8,15 +8,24 @@ from .utils import meta_classes_selector, print_to_string_io, \
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, utils, datasets
 from PIL import Image
+from collections import Counter, defaultdict
+
+DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "leo_segmentation", "data", "pascal_5i")
+TRAIN_DIR = os.path.join(DATA_DIR, "train")
+VAL_DIR = os.path.join(DATA_DIR, "val")
+CLASSES = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car",
+           "cat", "chair", "cow", "diningtable", "dog", "horse", 
+           "motorbike", "person", "pottedplant", "sheep", "sofa", 
+           "train", "tvmonitor"]
+CLASSES_DICT = {i:CLASSES[i] for i in range(len(CLASSES))}
+NUM_VALIDATION_EXAMPLES = 1000
 
 
 class Transform_image:
     """Performs data preprocessing steps on input images
-
     Args:
         img_width (int): Input image width
         img_height (int): Input image height
-
     """
     def __init__(self, img_width, img_height):
         self.img_width = img_width
@@ -24,32 +33,28 @@ class Transform_image:
 
     def __call__(self, im):
         """Implements the data preprocessing
-
         Args:
             im (PIL.image): PIL image
-
         Returns:
             im (np.ndarray): numpy array containing image data
         """
         w, h = im.size
         if h > w:
-            im = im.transpose(method=Image.ROTATE_270).\
-                             resize((self.img_width, self.img_height))
-        else:
-            im = im.resize((self.img_width, self.img_height))
+            im = im.transpose(method=Image.ROTATE_270)
+        
+        im = im.resize((self.img_width, self.img_height))
         im = np.array(im)
         im = im.astype(np.float32)
-        im = (im - 127.5)/127.5
+        im = (im)/255.0
+
         return im
 
 
 class Transform_mask:
     """Performs data preprocessing steps on input masks
-
     Args:
         img_width (int): Input image width
         img_height (int): Input image height
-
     """
     def __init__(self, img_width, img_height):
         self.img_width = img_width
@@ -57,43 +62,34 @@ class Transform_mask:
 
     def __call__(self, im):
         """Implements the data preprocessing
-
         Args:
             im (PIL.image): PIL image
-
         Returns:
             im (np.ndarray): numpy array containing image data
         """
         w, h = im.size
+
         if h > w:
-            im = im.transpose(method=Image.ROTATE_270).\
-                resize((self.img_width, self.img_height))
-        else:
-            im = im.resize((self.img_width, self.img_height))
-        im = np.array(im)
-        im = im.astype(np.float32)
-        im = (im - 127.5)/127.5
-        im = np.round(rgb2gray((im) > 0).astype(np.float32))
+            im = im.transpose(method=Image.ROTATE_270)
+
+        # Nearest upsampling
+        im = im.resize((self.img_width, self.img_height), resample=0)
+        im = np.array(im)/255
+        im = im.astype("uint8")
         return im
-
-
-def rgb2gray(rgb):
-    """ Convert a RGB Image to gray scale """
-    # https://stackoverflow.com/questions/12201577/how-can-i-convert-an-rgb-image-into-grayscale-in-python
-    return np.dot(rgb[..., :3], [0.2989, 0.5870, 0.1140])
-
 
 class Datagenerator(Dataset):
     """Sample task data for Meta-train, Meta-val and Meta-train tasks
 
     Args:
         dataset (str): dataset name
-        data_type (str): Meta-train, Meta-val or Meta-test
+        mode (str): Meta-train, Meta-val or Meta-test
     """
-    def __init__(self, dataset, data_type):
+    def __init__(self, dataset, mode="meta_train"):
         self._dataset = dataset
-        self._data_type = data_type
-        self.classes_dict = meta_classes_selector(config, dataset)
+        self.mode = mode
+        self.class_img_mapping,\
+        self.class_counts = class_to_img_mapping(fold)
         img_dims = config.data_params.img_dims
         self.transform_image = Transform_image(img_dims.width, img_dims.height)
         self.transform_mask = Transform_mask(img_dims.width, img_dims.height)
@@ -105,11 +101,11 @@ class Datagenerator(Dataset):
         _config = config.data_params
         dataset_root_path = os.path.join(os.path.dirname(__file__),
                                          config.data_path, self._dataset)
-        classes = self.classes_dict[self._data_type]
+        classes = self.classes_dict[self.mode]
         num_classes = _config.num_classes
-        n_train_per_class = _config.n_train_per_class[self._data_type]
-        n_val_per_class = _config.n_val_per_class[self._data_type]
-        batch_size = _config.num_tasks[self._data_type]
+        n_train_per_class = _config.n_train_per_class[self.mode]
+        n_val_per_class = _config.n_val_per_class[self.mode]
+        batch_size = _config.num_tasks[self.mode]
         img_datasets = datasets.ImageFolder(root=os.path.join(
             dataset_root_path, "images"))
 
@@ -152,7 +148,7 @@ class Datagenerator(Dataset):
             img_paths = [i[0] for i in img_datasets.imgs
                          if selected_class in i[0]]
             random.shuffle(img_paths)
-            if self._data_type == "meta_train":
+            if self.mode == "meta_train":
                 img_paths = list(np.random.choice(img_paths,
                                  n_train_per_class + n_val_per_class,
                                  replace=False))
@@ -179,7 +175,7 @@ class Datagenerator(Dataset):
                                      for i in tr_img_paths]))
             tr_masks.append(np.array([self.transform_mask(Image.open(i))
                                      for i in tr_masks_paths]))
-            if self._data_type in ["meta_val", "meta_test"]:
+            if self.mode in ["meta_val", "meta_test"]:
                 val_imgs.append(val_img_paths)
                 val_masks.append(val_masks_paths)
             else:
@@ -192,7 +188,7 @@ class Datagenerator(Dataset):
                "classes are not unique"
         total_tr_img_paths = tr_imgs + tr_masks
         total_vl_img_paths = val_imgs + val_masks
-        if self._data_type == "meta_train":
+        if self.mode == "meta_train":
             tr_data, tr_data_masks, val_data, val_masks = np.array(tr_imgs),\
                                                         np.array(tr_masks),\
                                                         np.array(val_imgs),\

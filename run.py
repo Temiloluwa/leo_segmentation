@@ -6,7 +6,7 @@ import torch
 import torch.optim
 import numpy as np
 from easydict import EasyDict as edict
-from leo_segmentation.data import Datagenerator, TrainingStats
+from leo_segmentation.data_pytorch_pascal import Datagenerator, TrainingStats
 from leo_segmentation.model import LEO, load_model, save_model
 from leo_segmentation.utils import load_config, check_experiment,\
     get_named_dict, log_data, load_yaml, train_logger, val_logger, \
@@ -58,16 +58,16 @@ def train_model(config, dataset):
         train_stats.set_episode(episode)
         train_stats.set_mode("meta_train")
         # meta-train stage
-        dataloader = Datagenerator(dataset, data_type="meta_train")
+        dataloader = Datagenerator(dataset, mode="meta_train")
         metadata = dataloader.get_batch_data()
         transformers = (dataloader.transform_image, dataloader.transform_mask)
         _, train_stats = leo.compute_loss(metadata, train_stats, transformers)
-        if episode % config.checkpoint_interval == 0:
+        if episode % config.checkpoint_interval == 1:
             save_model(leo, optimizer, config,
                        edict(train_stats.get_latest_stats()))
         # meta-val stage
-        if episode % config.meta_val_interval == 0:
-            dataloader = Datagenerator(dataset, data_type="meta_val")
+        if episode % config.meta_val_interval == 1:
+            dataloader = Datagenerator(dataset, mode="meta_val")
             train_stats.set_mode("meta_val")
             metadata = dataloader.get_batch_data()
             _, train_stats = leo.compute_loss(metadata, train_stats,
@@ -90,7 +90,7 @@ def predict_model(dataset, model_and_params, transformers):
     """Implement Predicion on Meta-Test"""
     config = load_config()
     leo, _, train_stats = model_and_params
-    dataloader = Datagenerator(dataset, data_type="meta_test")
+    dataloader = Datagenerator(dataset, mode="meta_test")
     train_stats.set_mode("meta_test")
     metadata = dataloader.get_batch_data()
     _, train_stats = leo.compute_loss(metadata, train_stats, transformers,

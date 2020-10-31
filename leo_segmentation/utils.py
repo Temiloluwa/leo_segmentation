@@ -14,6 +14,7 @@ from PIL import Image
 from matplotlib import pyplot as plt
 from easydict import EasyDict as edict
 from io import StringIO
+from collections import defaultdict
 
 
 def load_config(config_path: str = "config.json"):
@@ -22,6 +23,22 @@ def load_config(config_path: str = "config.json"):
     with open(config_path, "r") as f:
         config = json.loads(f.read())
     return edict(config)
+
+
+def loggers(config):
+    """Returns train and validation loggers"""
+    config_dict = load_yaml(os.path.join(project_root, "logging.yaml"))
+    if not os.path.exists(model_dir):
+        os.makedirs(model_dir, exist_ok=True)
+        create_log(config)
+    config_dict["handlers"]["trainStatsHandler"]["filename"] = \
+        os.path.join(model_dir, "train_log.txt")
+    config_dict["handlers"]["valStatsHandler"]["filename"] = \
+        os.path.join(model_dir, "val_log.txt")
+    logging.config.dictConfig(config_dict)
+    train_logger = logging.getLogger("train")
+    val_logger = logging.getLogger("val")
+    return train_logger, val_logger
 
 
 def meta_classes_selector(config, dataset, shuffle_classes=False):
@@ -68,6 +85,7 @@ def meta_classes_selector(config, dataset, shuffle_classes=False):
             else:
                 save_pickled_data(meta_classes_splits, data_path)
     return edict(meta_classes_splits)
+
 
 
 def save_npy(np_array, filename):
@@ -156,22 +174,6 @@ def create_log(config):
     msg = "********************* Val stats *********************\n"
     log_data(msg, log_filename, overwrite=True)
     return None
-
-
-def loggers(config):
-    """Returns train and validation loggers"""
-    config_dict = load_yaml(os.path.join(project_root, "logging.yaml"))
-    if not os.path.exists(model_dir):
-        os.makedirs(model_dir, exist_ok=True)
-        create_log(config)
-    config_dict["handlers"]["trainStatsHandler"]["filename"] = \
-        os.path.join(model_dir, "train_log.txt")
-    config_dict["handlers"]["valStatsHandler"]["filename"] = \
-        os.path.join(model_dir, "val_log.txt")
-    logging.config.dictConfig(config_dict)
-    train_logger = logging.getLogger("train")
-    val_logger = logging.getLogger("val")
-    return train_logger, val_logger
 
 
 def check_experiment(config):
@@ -265,3 +267,4 @@ model_root = os.path.join(project_root, "leo_segmentation",
 model_dir = os.path.join(model_root, "experiment_{}".
                          format(config.experiment.number))
 train_logger, val_logger = loggers(config)
+
