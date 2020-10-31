@@ -6,7 +6,6 @@ from tqdm import tqdm
 from .utils import display_data_shape, get_named_dict, calc_iou_per_class,\
     log_data, load_config, list_to_tensor, model_dir
 
-
 config = load_config()
 hyp = config.hyperparameters
 
@@ -36,22 +35,22 @@ class Decoder(tf.keras.Model):
     """ Decoder for the LEO model"""
     def __init__(self, dropout_probs=hyp.dropout_rate):
         super(Decoder, self).__init__()
-        self.conv1 = tf.keras.layers.Conv2D(filters=hyp.base_num_covs, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-        self.conv1b = tf.keras.layers.Conv2D(filters=hyp.base_num_covs, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-        self.conv2 = tf.keras.layers.Conv2D(filters=hyp.base_num_covs*2, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-        self.conv2b = tf.keras.layers.Conv2D(filters=hyp.base_num_covs*2, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-        self.conv3 = tf.keras.layers.Conv2D(filters=hyp.base_num_covs*3, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-        self.conv3b = tf.keras.layers.Conv2D(filters=hyp.base_num_covs*3, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-        self.conv4 = tf.keras.layers.Conv2D(filters=hyp.base_num_covs*4, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-        self.conv4b = tf.keras.layers.Conv2D(filters=hyp.base_num_covs*4, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-        self.conv5 = tf.keras.layers.Conv2D(filters=hyp.base_num_covs*5, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-        self.conv5b = tf.keras.layers.Conv2D(filters=hyp.base_num_covs*5, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-        self.convfinal = tf.keras.layers.Conv2D(filters=2, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
-        self.upsample1 = tf.keras.layers.Conv2DTranspose(hyp.base_num_covs, 3, strides=2,padding='same')
-        self.upsample2 = tf.keras.layers.Conv2DTranspose(hyp.base_num_covs*2, 3, strides=2,padding='same')
-        self.upsample3 = tf.keras.layers.Conv2DTranspose(hyp.base_num_covs*3, 3, strides=2,padding='same')
-        self.upsample4 = tf.keras.layers.Conv2DTranspose(hyp.base_num_covs*4, 3, strides=2,padding='same')
-        self.upsample5 = tf.keras.layers.Conv2DTranspose(hyp.base_num_covs*5, 3, strides=2,padding='same')
+        self.conv1 = tf.keras.layers.SeparableConv2D(filters=hyp.base_num_covs*16, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv1b = tf.keras.layers.SeparableConv2D(filters=hyp.base_num_covs*16, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv2 = tf.keras.layers.SeparableConv2D(filters=hyp.base_num_covs*8, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv2b = tf.keras.layers.SeparableConv2D(filters=hyp.base_num_covs*8, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv3 = tf.keras.layers.SeparableConv2D(filters=hyp.base_num_covs*4, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv3b = tf.keras.layers.SeparableConv2D(filters=hyp.base_num_covs*4, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv4 = tf.keras.layers.SeparableConv2D(filters=hyp.base_num_covs*2, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv4b = tf.keras.layers.SeparableConv2D(filters=hyp.base_num_covs*2, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv5 = tf.keras.layers.SeparableConv2D(filters=hyp.base_num_covs, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv5b = tf.keras.layers.SeparableConv2D(filters=hyp.base_num_covs, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.convfinal = tf.keras.layers.SeparableConv2D(filters=2, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.upsample1 = tf.keras.layers.Conv2DTranspose(hyp.base_num_covs*16, 3, strides=2,padding='same')
+        self.upsample2 = tf.keras.layers.Conv2DTranspose(hyp.base_num_covs*8, 3, strides=2,padding='same')
+        self.upsample3 = tf.keras.layers.Conv2DTranspose(hyp.base_num_covs*4, 3, strides=2,padding='same')
+        self.upsample4 = tf.keras.layers.Conv2DTranspose(hyp.base_num_covs*2, 3, strides=2,padding='same')
+        self.upsample5 = tf.keras.layers.Conv2DTranspose(hyp.base_num_covs, 3, strides=2,padding='same')
         self.concat = tf.keras.layers.Concatenate()
         self.dropout1 = tf.keras.layers.Dropout(dropout_probs)
         self.dropout2 = tf.keras.layers.Dropout(dropout_probs)
@@ -101,7 +100,7 @@ class LEO(tf.keras.Model):
         self.decoder = Decoder()
         self.optimizer = tf.keras.optimizers.Adam(1e-4)
         self.init = tf.initializers.GlorotUniform()
-        self.seg_weight = tf.Variable(self.init((3, 3, 43, 2)))
+        self.seg_weight = tf.Variable(self.init((3, 3, hyp.base_num_covs + 3, 2)))
         self.loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
 
     def forward_encoder(self, x):
@@ -216,6 +215,7 @@ class LEO(tf.keras.Model):
                 return val_loss, seg_weight_grad, decoder_gradients, pred, weight
             else:
                 return None, None, None, None, weight
+
                
     def evaluate(self, data, prediction, weight, transformers, mode):
         img_transformer, mask_transformer = transformers
@@ -283,6 +283,7 @@ class LEO(tf.keras.Model):
             mean_iou_dict[classes[batch]] = mean_iou
             total_val_loss.append(val_loss)
         
+
         if mode == "meta_train":
             self.optimizer.apply_gradients(zip(total_gradients, self.decoder.trainable_variables))
             self.optimizer.apply_gradients([(seg_weight_grad, self.seg_weight)])

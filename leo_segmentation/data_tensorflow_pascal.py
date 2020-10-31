@@ -50,6 +50,7 @@ def class_to_img_mapping(fold, mode):
     return class_img_mapping, class_counts
 
 
+
 class Transform_image:
     """Performs data preprocessing steps on input images
     Args:
@@ -106,6 +107,7 @@ class Transform_mask:
         im = np.array(im)/255
         im = im.astype("uint8")
         return im
+
 
 class Datagenerator(Dataset):
     """Sample task data for Meta-train, Meta-val and Meta-train tasks
@@ -180,7 +182,7 @@ class Datagenerator(Dataset):
             else:
                 t_img_paths = list(np.random.choice(fname_list,
                             n_train_per_class, replace=False))
-                v_img_paths = list(set(fname_list) - set(img_paths))
+                v_img_paths = list(set(fname_list) - set(t_img_paths))
                 tr_img_paths.extend(t_img_paths)
                 tr_masks_paths.extend(t_img_paths)
                 val_img_paths.extend(v_img_paths)
