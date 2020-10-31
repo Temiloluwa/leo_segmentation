@@ -18,7 +18,7 @@
     },
     "experiment":{"number":22, "episode":1, "description":"leo_maml_tf-pascal_fold_1", "prompt_deletion":false},
     "hyperparameters":{
-        "base_num_covs":8,
+        "base_num_covs":32,
         "outer_loop_lr":1e-3,
         "inner_loop_lr":1e-3,
         "finetuning_lr":1e-3,
