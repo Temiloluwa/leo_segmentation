@@ -18,7 +18,6 @@ CLASSES = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car",
            "motorbike", "person", "pottedplant", "sheep", "sofa", 
            "train", "tvmonitor"]
 CLASSES_DICT = {i:CLASSES[i] for i in range(len(CLASSES))}
-NUM_VALIDATION_EXAMPLES = 1000
 
 
 class Transform_image:
