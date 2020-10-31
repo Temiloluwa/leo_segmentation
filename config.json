@@ -22,7 +22,7 @@
         "outer_loop_lr":1e-3,
         "inner_loop_lr":1e-3,
         "finetuning_lr":1e-3,
-        "dropout_rate":0.25,
+        "dropout_rate":0.2,
         "num_finetuning_steps":10,
         "num_adaptation_steps":10,
         "episodes":300
