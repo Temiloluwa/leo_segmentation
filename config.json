@@ -25,6 +25,6 @@
         "dropout_rate":0.2,
         "num_finetuning_steps":10,
         "num_adaptation_steps":10,
-        "episodes":300
+        "episodes":1000
     }
 }
