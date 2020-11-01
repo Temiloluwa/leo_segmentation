@@ -19,10 +19,13 @@ def mobilenet_v2_encoder(img_dims):
         include_top=False,
     )  
     layer_names = [
-        'block_1_expand_relu',   
-        'block_3_expand_relu',   
-        'block_6_expand_relu',   
-        'block_13_expand_relu',  
+        'block_1_expand_relu', #stride2 -
+        'block_2_expand_relu', #stride4
+        'block_3_expand_relu', #stride4 -
+        'block_5_expand_relu', #stride8
+        'block_6_expand_relu', #stride8 -
+        'block_11_expand_relu', #stride16  
+        'block_13_expand_relu', #stride16 - 
         'block_16_project',      
     ]
     layers = [base_model.get_layer(name).output for name in layer_names]
@@ -39,12 +42,20 @@ class Decoder(tf.keras.Model):
         self.conv1b = tf.keras.layers.SeparableConv2D(filters=hyp.base_num_covs*5, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
         self.conv2 = tf.keras.layers.SeparableConv2D(filters=hyp.base_num_covs*4, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
         self.conv2b = tf.keras.layers.SeparableConv2D(filters=hyp.base_num_covs*4, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv2c = tf.keras.layers.SeparableConv2D(filters=hyp.base_num_covs*4, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv2d = tf.keras.layers.SeparableConv2D(filters=hyp.base_num_covs*4, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
         self.conv3 = tf.keras.layers.SeparableConv2D(filters=hyp.base_num_covs*3, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
         self.conv3b = tf.keras.layers.SeparableConv2D(filters=hyp.base_num_covs*3, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv3c = tf.keras.layers.SeparableConv2D(filters=hyp.base_num_covs*3, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv3d = tf.keras.layers.SeparableConv2D(filters=hyp.base_num_covs*3, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
         self.conv4 = tf.keras.layers.SeparableConv2D(filters=hyp.base_num_covs*2, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
         self.conv4b = tf.keras.layers.SeparableConv2D(filters=hyp.base_num_covs*2, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv4c = tf.keras.layers.SeparableConv2D(filters=hyp.base_num_covs*2, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv4d = tf.keras.layers.SeparableConv2D(filters=hyp.base_num_covs*2, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
         self.conv5 = tf.keras.layers.SeparableConv2D(filters=hyp.base_num_covs*1, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
         self.conv5b = tf.keras.layers.SeparableConv2D(filters=hyp.base_num_covs*1, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv5c = tf.keras.layers.SeparableConv2D(filters=hyp.base_num_covs*1, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
+        self.conv5d = tf.keras.layers.SeparableConv2D(filters=hyp.base_num_covs*1, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
         self.convfinal = tf.keras.layers.SeparableConv2D(filters=2, kernel_size=3, strides=1, padding='same', activation="relu", use_bias=False)
         self.upsample1 = tf.keras.layers.Conv2DTranspose(hyp.base_num_covs*5, 3, strides=2,padding='same')
         self.upsample2 = tf.keras.layers.Conv2DTranspose(hyp.base_num_covs*4, 3, strides=2,padding='same')
@@ -59,29 +70,40 @@ class Decoder(tf.keras.Model):
         self.dropout5 = tf.keras.layers.Dropout(dropout_probs)
 
     def call(self, encoder_outputs):
-        x = self.conv1(encoder_outputs[-1])
+        x = self.conv1(encoder_outputs[-1]) #12,16
         x = self.dropout1(x)
         x = self.conv1b(x)
         x = self.upsample1(x)
-        x = self.concat([x, encoder_outputs[-2]])
+        x = self.concat([x, encoder_outputs[-2]]) #24,32
         x = self.conv2(x)
         x = self.dropout2(x)
         x = self.conv2b(x)
+        x = self.conv2c(x)
+        x = self.concat([x, encoder_outputs[-3]]) 
+        x = self.conv2d(x)
         x = self.upsample2(x)
-        x = self.concat([x, encoder_outputs[-3]])
+        x = self.concat([x, encoder_outputs[-4]]) #48,64
         x = self.conv3(x)
         x = self.dropout3(x)
         x = self.conv3b(x)
+        x = self.conv3c(x)
+        x = self.concat([x, encoder_outputs[-5]])
+        x = self.conv3d(x)
         x = self.upsample3(x)
-        x = self.concat([x, encoder_outputs[-4]])
+        x = self.concat([x, encoder_outputs[-6]])
         x = self.conv4(x)
         x = self.dropout4(x)
         x = self.conv4b(x)
+        x = self.conv4c(x)
+        x = self.concat([x, encoder_outputs[-7]])
+        x = self.conv4d(x)
         x = self.upsample4(x)
-        x = self.concat([x, encoder_outputs[-5]])
+        x = self.concat([x, encoder_outputs[-8]])
         x = self.conv5(x)
         x = self.dropout5(x)
         x = self.conv5b(x)
+        x = self.conv5c(x)
+        x = self.conv5d(x)
         output = self.upsample5(x)
         return output
 
@@ -146,7 +168,7 @@ class LEO(tf.keras.Model):
         """
         encoder_outputs = self.forward_encoder(x)
         if latents != None:
-            encoder_outputs = encoder_outputs[:4] + [latents]
+            encoder_outputs = encoder_outputs[:-1] + [latents]
         else:
             latents = encoder_outputs[-1]
         features = self.forward_decoder(encoder_outputs)
