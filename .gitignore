@@ -1,3 +1,10 @@
 leo_segmentation/__pycache__/
 leo_segmentation/data/sample_data
+embeddings_generation/plots/*
+leo_segmentation/data/models/
+leo_segmentation/data/model_shapes.txt
+.ipynb_checkpoints/
+debug.log
 *.pyc
+*stackdump
+.vscode/

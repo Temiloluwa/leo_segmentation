@@ -18,8 +18,7 @@ import numpy as np
 from collections import defaultdict, Counter
 from tqdm import tqdm
 from pascal_embeddings_data import DataGenerator
-from pascal_models import mobilenet_v2_encoder, Decoder
-#from ..utils import load_pickled_data, save_pickled_data, save_npy,
+from pascal_embeddings_models import mobilenet_v2_encoder, Decoder
 import time
 import itertools
 
@@ -169,6 +168,7 @@ if __name__ == "__main__":
             data_generator.setmode("val")
             batch_imgs, batch_masks, batch_classnames  = next(iter(data_generator))
             plot_prediction(encoder, decoder, batch_imgs, batch_masks, batch_classnames)
+            plot_stats(pd.DataFrame(training_stats), "train loss")
             plot_stats(pd.DataFrame(training_stats), "val loss")
     
     pp.pprint(f"Train ious: {train_iou_per_class}")
