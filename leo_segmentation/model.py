@@ -151,7 +151,8 @@ class LEO(tf.keras.Model):
         pred = tf.nn.convolution(x, weight, strides=1, padding='SAME')
         return pred
 
-    def __call__(self, x, latents=None):
+
+    def call(self, x, latents=None):
         """
            Performs a forward pass through the entire network
            - The Autoencoder generates features using the inputs
@@ -175,6 +176,7 @@ class LEO(tf.keras.Model):
         pred = self.forward_segnetwork(features, x, self.seg_weight)
         return latents, features, pred
         
+
     @tf.function
     def leo_inner_loop(self, x, y):
         """
@@ -286,19 +288,20 @@ class LEO(tf.keras.Model):
         kl_losses = None
         mean_iou_dict = {} 
         total_gradients = None
+        gradient_clip_norm = config.hyperparameters.gradient_clip_norm
         for batch in range(num_tasks):
             data = get_named_dict(metadata, batch)
             seg_weight_grad, features = self.leo_inner_loop(data.tr_imgs, data.tr_masks)
             tr_val_loss, seg_weight_grad, decoder_gradients, prediction, weight = self.finetuning_inner_loop(data, features, \
                                                                         seg_weight_grad, mode)
             if mode == "meta_train":
-                decoder_gradients = [grad/num_tasks for grad in decoder_gradients]
-                if total_gradients == None:
+                decoder_gradients = [tf.clip_by_norm(grad/num_tasks, gradient_clip_norm) for grad in decoder_gradients]
+                if total_gradients is None:
                     total_gradients = decoder_gradients
-                    seg_weight_grad = seg_weight_grad/num_tasks
+                    seg_weight_grad = tf.clip_by_norm(seg_weight_grad/num_tasks, gradient_clip_norm)
                 else:
                     total_gradients = [total_gradients[i] + decoder_gradients[i] for i in range(len(decoder_gradients))]
-                    seg_weight_grad += seg_weight_grad/num_tasks
+                    seg_weight_grad += tf.clip_by_norm(seg_weight_grad/num_tasks, gradient_clip_norm)
                 
             mean_iou, val_loss = self.evaluate(data, prediction, weight, transformers, mode)
             val_loss = tr_val_loss if mode == "meta_train" else val_loss
@@ -312,7 +315,6 @@ class LEO(tf.keras.Model):
         total_val_loss = float(sum(total_val_loss)/len(total_val_loss))  
         stats_data = {
             "mode": mode,
-            "kl_loss": 0,
             "total_val_loss":total_val_loss,
             "mean_iou_dict":mean_iou_dict
         }

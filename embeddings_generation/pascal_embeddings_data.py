@@ -37,7 +37,7 @@ CONFIG = {
     "img_height": 384,
     "img_width": 512,
     "n_query": 1,
-    "n_support": 1,
+    "n_support": 5,
     "train_batch_size": 15,
     "val_batch_size": 1000
 }
@@ -108,7 +108,7 @@ class Transform_mask:
         # Nearest upsampling
         im = im.resize((self.img_width, self.img_height), resample=0)
         im = np.array(im)/255
-        im = im.astype("uint8")
+        im = im.astype('float32')
         return im
 
 
@@ -180,8 +180,9 @@ class FewShotDataGenerator:
         self.classes_dict = {i:self.classes[i] for i in range(len(self.classes))}
         self.genenerate_class_paths(fold)
         self.transform_image = Transform_image(config.img_width, config.img_height)
-        self.transform_support_mask = Transform_mask(config.img_width, config.img_height)
-        self.transform_query_mask = Transform_mask(config.img_width, config.img_height)
+        #self.transform_support_mask = Transform_mask(config.img_width//8, config.img_height//8)
+        self.transform_support_mask = Transform_mask(config.img_width//2, config.img_height//2)
+        self.transform_query_mask = Transform_mask(config.img_width//2, config.img_height//2)
     
 
     def genenerate_class_paths(self, fold):
@@ -216,6 +217,7 @@ class FewShotDataGenerator:
         
         self.train_classes = list(self.train_path_map.keys())
         self.val_classes = list(self.val_path_map.keys())
+        self.val_count_per_class = {k: len(v) for k,v in  self.val_path_map.items()}
 
     def __len__(self):
         return 15 if self.mode == "train" else 1000
@@ -270,7 +272,7 @@ class FewShotDataGenerator:
                 support_fnames.extend(support_fns)
                 query_fnames.extend(query_fns)
         
-            return np.array(support_imgs), np.array(query_imgs), np.array(support_masks), np.array(query_masks), support_fnames, query_fnames
+            yield np.array(support_imgs), np.array(query_imgs), np.array(support_masks), np.array(query_masks), support_fnames, query_fnames
         else:
             validation_paths = list(islice(cycle(self.val_paths), self.config.val_batch_size))
             for query_path in validation_paths:
@@ -289,11 +291,11 @@ class FewShotDataGenerator:
                 query_fns = [f'{selected_class}-{query_path}']
 
                 yield (np.array([self.transform_image(Image.open(i)) for i in  support_img_paths]),
-                np.array([self.transform_image(Image.open(i)) for i in  query_img_paths]),
-                np.array([self.transform_support_mask(Image.open(i)) for i in support_mask_paths]),
-                np.array([self.transform_query_mask(Image.open(i)) for i in query_mask_paths]),
-                support_fns,
-                query_fns)
+                        np.array([self.transform_image(Image.open(i)) for i in  query_img_paths]),
+                        np.array([self.transform_support_mask(Image.open(i)) for i in support_mask_paths]),
+                        np.array([self.transform_query_mask(Image.open(i)) for i in query_mask_paths]),
+                        support_fns,
+                        query_fns)
                 
                 
     def get_batch_data(self):

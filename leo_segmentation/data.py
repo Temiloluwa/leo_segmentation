@@ -1,3 +1,5 @@
+# pascal-voc dataset and augmented images obtained from ca-net paper implementation 
+# @ https://github.com/icoz69/CaNet
 import os
 import collections
 import pandas as pd
@@ -10,14 +12,48 @@ from torchvision import transforms, utils, datasets
 from PIL import Image
 from collections import Counter, defaultdict
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "leo_segmentation", "data", "pascal_5i")
+config = load_config()
+DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),\
+    "leo_segmentation", "data", config.selected_data)
 TRAIN_DIR = os.path.join(DATA_DIR, "train")
 VAL_DIR = os.path.join(DATA_DIR, "val")
-CLASSES = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car",
-           "cat", "chair", "cow", "diningtable", "dog", "horse", 
-           "motorbike", "person", "pottedplant", "sheep", "sofa", 
-           "train", "tvmonitor"]
-CLASSES_DICT = {i:CLASSES[i] for i in range(len(CLASSES))}
+
+if config.selected_data == "pascal_5i":
+    CLASSES = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car",
+                "cat", "chair", "cow", "diningtable", "dog", "horse", 
+                "motorbike", "person", "pottedplant", "sheep", "sofa", 
+                "train", "tvmonitor"]
+    CLASSES_DICT = {i:CLASSES[i] for i in range(len(CLASSES))}
+elif config.selected_data == "fss1000":
+    pass
+
+def class_to_img_mapping(fold, mode):
+    def read_file(filename):
+        with open(filename, "r") as f:
+            temp_list = f.readlines()
+            temp_list = [i.strip("\n").split("__") for i in temp_list]
+            temp_list = [(i[0], int(i[1])) for i in temp_list]
+            return temp_list
+    class_img_mapping = defaultdict(list)
+    class_counts = defaultdict(int)
+    train_folds = [0, 1, 2, 3]
+    train_folds.remove(fold)
+    
+    if mode == "meta_train":
+        for fold_number in train_folds:
+            textfile_path = os.path.join(DATA_DIR, 'Binary_map_aug', 'train', f'split{fold_number}_train.txt')
+            train_files_list = read_file(textfile_path)
+            for fname, class_idx in train_files_list:
+                class_img_mapping[CLASSES_DICT[class_idx-1]].append(fname)
+                class_counts[CLASSES_DICT[class_idx-1]] += 1
+    else:
+        textfile_path = os.path.join(DATA_DIR, 'Binary_map_aug', 'val', f'split{fold}_val.txt')
+        val_files_list = read_file(textfile_path)
+        for fname, class_idx in val_files_list:
+            class_img_mapping[CLASSES_DICT[class_idx-1]].append(fname)
+            class_counts[CLASSES_DICT[class_idx-1]] += 1
+
+    return class_img_mapping, class_counts
 
 
 class Transform_image:
@@ -77,7 +113,8 @@ class Transform_mask:
         im = im.astype("uint8")
         return im
 
-class Datagenerator(Dataset):
+
+class PascalDatagenerator(Dataset):
     """Sample task data for Meta-train, Meta-val and Meta-train tasks
 
     Args:
@@ -85,13 +122,18 @@ class Datagenerator(Dataset):
         mode (str): Meta-train, Meta-val or Meta-test
     """
     def __init__(self, dataset, mode="meta_train"):
+        fold = config.data_params.fold
         self._dataset = dataset
         self.mode = mode
-        self.class_img_mapping,\
-        self.class_counts = class_to_img_mapping(fold)
+        self.class_img_mapping, \
+        self.class_counts = class_to_img_mapping(fold, mode)
+        val_classes = CLASSES[fold*5:(fold + 1)*5]
+        self.classes = list(set(CLASSES) - set(val_classes)) \
+                                        if mode == "meta_train" else val_classes
         img_dims = config.data_params.img_dims
         self.transform_image = Transform_image(img_dims.width, img_dims.height)
         self.transform_mask = Transform_mask(img_dims.width, img_dims.height)
+    
 
     def __len__(self):
         return len(self._dataset)
@@ -100,104 +142,98 @@ class Datagenerator(Dataset):
         _config = config.data_params
         dataset_root_path = os.path.join(os.path.dirname(__file__),
                                          config.data_path, self._dataset)
-        classes = self.classes_dict[self.mode]
         num_classes = _config.num_classes
         n_train_per_class = _config.n_train_per_class[self.mode]
         n_val_per_class = _config.n_val_per_class[self.mode]
         batch_size = _config.num_tasks[self.mode]
-        img_datasets = datasets.ImageFolder(root=os.path.join(
-            dataset_root_path, "images"))
 
-        if batch_size > len(classes):
+        if batch_size > len(self.classes):
             raise ValueError("number of tasks must be less than the number \
                              of available classes")
-
-        def data_path_assertions(data_path, img_or_mask):
-            """ Make assertions over selected paths"""
-            temp = data_path.split(os.sep)
-            _img_or_mask, _selected_class = temp[-3], temp[-2]
-            assert _img_or_mask == img_or_mask,\
-                    "wrong data type (image or mask)"
-            # assert _selected_class == selected_class,\
-            # "wrong class (selected class)"
         
-        def data_path_assertions(data_path, img_or_mask):
-            temp = data_path.split(os.sep)
-            _img_or_mask, _selected_class = temp[-3], temp[-2]
-            assert _img_or_mask == img_or_mask, "wrong data type (image or mask)"
-            #assert _selected_class == selected_class, "wrong class (selected class)"
-
         tr_imgs = []
         tr_masks = []
         val_imgs = []
         val_masks = []
         classes_selected = []
+        classes = self.classes.copy()
+        total_tr_fnames = []
+        total_vl_fnames = []
 
         for i in range(batch_size):
             selected_class = (np.random.choice(classes, num_classes,
-                              replace=False))[0]
+                            replace=False))[0]
+            fname_list = self.class_img_mapping[selected_class]
+           
             classes_selected.append(selected_class)
             classes.remove(selected_class)
+            
             tr_img_paths = []
             tr_masks_paths = []
             val_img_paths = []
             val_masks_paths = []
-
+            
             # Sample image paths belonging to classes
-            img_paths = [i[0] for i in img_datasets.imgs
-                         if selected_class in i[0]]
-            random.shuffle(img_paths)
+            random.shuffle(fname_list)
             if self.mode == "meta_train":
-                img_paths = list(np.random.choice(img_paths,
-                                 n_train_per_class + n_val_per_class,
-                                 replace=False))
-            for img_path in img_paths:
-                data_path_assertions(img_path, "images")
+                img_paths = list(np.random.choice(fname_list,
+                            n_train_per_class + n_val_per_class, replace=False))
+                tr_img_paths.extend(img_paths[:n_train_per_class])
+                tr_masks_paths.extend(img_paths[:n_train_per_class])
+                val_img_paths.extend(img_paths[n_train_per_class:])
+                val_masks_paths.extend(img_paths[n_train_per_class:])
+                total_tr_fnames.extend(img_paths[:n_train_per_class])
+                total_vl_fnames.extend(img_paths[n_train_per_class:])
+            else:
+                t_img_paths = list(np.random.choice(fname_list,
+                            n_train_per_class, replace=False))
+                v_img_paths = list(set(fname_list) - set(t_img_paths))
+                tr_img_paths.extend(t_img_paths)
+                tr_masks_paths.extend(t_img_paths)
+                val_img_paths.extend(v_img_paths)
+                val_masks_paths.extend(v_img_paths)
+                total_tr_fnames.extend(t_img_paths)
+                total_vl_fnames.extend(v_img_paths)
 
-            # Sample mask paths and convert them to the correct extensions
-            mask_paths = [i.replace("images", "masks") for i in img_paths]
-            mask_paths = [i.replace("jpg", "png") if not os.path.exists(i)
-                          else i for i in mask_paths]
-            # Create a list in the case only one image path is created
-            img_paths = [img_paths] if type(img_paths) == str else img_paths
-            mask_paths = [mask_paths] if type(mask_paths) == str else mask_paths
-            
-            # Divide sample paths to train and val splits
-            tr_img_paths.extend(img_paths[:n_train_per_class])
-            tr_masks_paths.extend(mask_paths[:n_train_per_class])
-            val_img_paths.extend(img_paths[n_train_per_class:])
-            val_masks_paths.extend(mask_paths[n_train_per_class:])
-            
+            mode = self.mode.replace("meta_", "")
+            tr_img_paths = [os.path.join(DATA_DIR, 'JPEGImages', f'{img}.jpg') for img in tr_img_paths]
+            tr_masks_paths = [os.path.join(DATA_DIR, 'Binary_map_aug', mode,\
+                        f'{CLASSES.index(selected_class) + 1}', f'{mask}.png') for mask in tr_masks_paths]
+            val_img_paths = [os.path.join(DATA_DIR, 'JPEGImages', f'{img}.jpg') for img in val_img_paths]
+            val_masks_paths = [os.path.join(DATA_DIR, 'Binary_map_aug', mode,\
+                        f'{CLASSES.index(selected_class) + 1}', f'{mask}.png') for mask in val_masks_paths]
+
+           
             # Store np.arrays for train and val images for all data types
             # Store only paths of val images for Meta-val and Meta-test
             tr_imgs.append(np.array([self.transform_image(Image.open(i))
-                                     for i in tr_img_paths]))
+                                    for i in tr_img_paths]))
             tr_masks.append(np.array([self.transform_mask(Image.open(i))
-                                     for i in tr_masks_paths]))
-            if self.mode in ["meta_val", "meta_test"]:
+                                    for i in tr_masks_paths]))
+            if self.mode == "meta_train":
+                val_imgs.append(np.array([self.transform_image(Image.open(i))
+                                            for i in val_img_paths]))
+                val_masks.append(np.array([self.transform_mask(Image.open(i))
+                                            for i in val_masks_paths]))
+            else:
                 val_imgs.append(val_img_paths)
                 val_masks.append(val_masks_paths)
-            else:
-                val_imgs.append(np.array([self.transform_image(Image.open(i))
-                                          for i in val_img_paths]))
-                val_masks.append(np.array([self.transform_mask(Image.open(i))
-                                           for i in val_masks_paths]))
-
+            
         assert len(classes_selected) == len(set(classes_selected)),\
                "classes are not unique"
-        total_tr_img_paths = tr_imgs + tr_masks
-        total_vl_img_paths = val_imgs + val_masks
+        
         if self.mode == "meta_train":
-            tr_data, tr_data_masks, val_data, val_masks = np.array(tr_imgs),\
+            tr_imgs, tr_masks, val_imgs, val_masks = np.array(tr_imgs),\
                                                         np.array(tr_masks),\
                                                         np.array(val_imgs),\
                                                         np.array(val_masks)
-            return tr_data, tr_data_masks, val_data, val_masks,\
-                classes_selected, total_tr_img_paths, total_vl_img_paths
+            return tr_imgs, tr_masks, val_imgs, val_masks,\
+                classes_selected, total_tr_fnames, total_vl_fnames
         else:
-            tr_data, tr_data_masks = np.array(tr_imgs), np.array(tr_masks)
-            return tr_data, tr_data_masks, val_imgs, val_masks,\
-                classes_selected, total_tr_img_paths, total_vl_img_paths
+            # val_imgs and val_masks are lists
+            tr_imgs, tr_masks = np.array(tr_imgs), np.array(tr_masks)
+            return tr_imgs, tr_masks, val_imgs, val_masks, classes_selected, \
+                   total_tr_fnames, total_vl_fnames 
 
     def get_batch_data(self):
         return self.__getitem__(0)
@@ -281,4 +317,8 @@ class TrainingStats:
     def disp_stats(self):
         print(self.stats_msg)
 
-config = load_config()
+
+if config.selected_data == "pascal_5i":
+    Datagenerator = PascalDatagenerator
+else:
+    pass

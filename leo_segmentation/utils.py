@@ -25,6 +25,16 @@ def load_config(config_path: str = "config.json"):
     return edict(config)
 
 
+def update_config(data):
+    """ Updates config file """
+    config = load_config()
+    for k, v in data.items():
+        config[k] = v 
+    config_path = os.path.join(project_root, "config.json")
+    with open(config_path, "w",  encoding="utf-8") as f:
+        json.dump(config, f, indent=4)
+
+
 def loggers(config):
     """Returns train and validation loggers"""
     config_dict = load_yaml(os.path.join(project_root, "logging.yaml"))

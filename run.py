@@ -7,11 +7,11 @@ import torch.optim
 import numpy as np
 import tensorflow as tf
 from easydict import EasyDict as edict
-from leo_segmentation.data_tensorflow_pascal import Datagenerator, TrainingStats
+from leo_segmentation.data import Datagenerator, TrainingStats
 from leo_segmentation.model import LEO, load_model, save_model
 from leo_segmentation.utils import load_config, check_experiment,\
     get_named_dict, log_data, load_yaml, train_logger, val_logger, \
-    print_to_string_io, save_pickled_data, model_dir
+    print_to_string_io, save_pickled_data, model_dir, update_config
 
 try:
     shell = get_ipython().__class__.__name__
@@ -19,18 +19,19 @@ try:
         raise NameError("Move to except branch")
 except NameError:
     parser = argparse.ArgumentParser(description='Specify dataset')
-    parser.add_argument("-d", "--dataset", type=str, default="pascal_5i_fold_0")
+    parser.add_argument("-d", "--dataset", type=str, default="pascal_5i")
     args = parser.parse_args()
     dataset = args.dataset
 
-
+config = load_config()
+update_config({'selected_data': dataset})
 gpus = tf.config.experimental.list_physical_devices('GPU')
 if gpus:
-  try:
-    for gpu in gpus:
-      tf.config.experimental.set_memory_growth(gpu, True)
-  except RuntimeError as e:
-    print(e)
+    try:
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+    except RuntimeError as e:
+        print(e)
 
 
 def load_model_and_params():
@@ -45,17 +46,14 @@ def load_model_and_params():
     return leo, optimizer, train_stats
 
 
-def train_model(config, dataset):
+def train_model(dataset):
     """Trains Model"""
     # writer = SummaryWriter(os.path.join(config.data_path, "models",
     # str(config.experiment.number)))
-    device = torch.device("cuda:0" if torch.cuda.is_available()
-                          and config.use_gpu else "cpu")
     if check_experiment(config):
         # Load saved model and parameters
         leo, optimizer, train_stats = load_model_and_params()
     else:
-        # Train a fresh model
         leo = LEO()
         train_stats = TrainingStats()
         episodes_completed = 0
@@ -123,7 +121,7 @@ def predict_model(dataset, model_and_params, transformers):
 
 def main():
     if config.train:
-        train_model(config, dataset)
+        train_model(dataset)
     else:
         def evaluate_model():
             dataloader = Datagenerator(dataset, data_type="meta_train")
@@ -137,5 +135,4 @@ def main():
 
 
 if __name__ == "__main__":
-    config = load_config()
     main()

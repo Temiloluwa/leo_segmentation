@@ -57,3 +57,22 @@ def save_embeddings(encoder, decoder, data_type, **kwargs):
             mask_file_path = os.path.join(masks_save_path_data_type_root, fn)
             save_npy(output_embedding, img_file_path)
             save_npy(target,  mask_file_path)
+
+
+"""
+    encoder.save_weights("./data/pascal_voc/embedding_ckpt/encoder_weights")
+    decoder.save_weights("./data/pascal_voc/embedding_ckpt/decoder_weights")
+  
+    
+    train_stats_save_path_root = os.path.join(os.path.dirname(__file__), "data", "pascal_voc", "emb_train_stats")
+    os.makedirs(train_stats_save_path_root, exist_ok=True)
+
+    test_saved_model(encoder, decoder, chosen_encoder, batch_imgs, img_dims)
+
+    save_pickled_data(training_stats, os.path.join(train_stats_save_path_root, f"training_stats_exp_{experiment_number}.pkl"))
+    save_pickled_data(iou_per_class_list, os.path.join(train_stats_save_path_root, f"iou_per_class_list_exp_{experiment_number}.pkl"))
+    if generate_embeddings:
+        save_embeddings(encoder, decoder, "train", **model_kwargs)
+        save_embeddings(encoder, decoder,"val", **model_kwargs)
+    test_saved_embeddings()
+"""

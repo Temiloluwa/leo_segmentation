@@ -17,12 +17,33 @@ import os
 import numpy as np
 from collections import defaultdict, Counter
 from tqdm import tqdm
-from pascal_embeddings_data import DataGenerator
-from pascal_embeddings_models import mobilenet_v2_encoder, Decoder
+from pascal_embeddings_data import DataGenerator, FewShotDataGenerator
+from pascal_embeddings_models import mobilenet_v2_encoder_v2, Decoder, Decoderv4
 import time
 import itertools
 
+pp = pprint.PrettyPrinter(width=100, compact=True)
+parser = argparse.ArgumentParser(description='Specify dataset')
+parser.add_argument("--fold", type=int, help='validation fold', default=1)
+parser.add_argument("--imgdims", type=tuple, default=(3, 384, 512))
+parser.add_argument("--lr", type=float, default=1e-3)
+parser.add_argument("--bs", type=int, default=16)
+parser.add_argument("--epochs", type=int, default=3000)
+parser.add_argument("--freq", type=int, default=50)
+parser.add_argument("--generate", type=bool, help='generate embeddings', default=False)
+parser.add_argument("--encoder", type=str, help='choose encoder', default='mobilenet_v2')
+args = parser.parse_args()
+
+FOLD = args.fold
+NUM_CHANNELS, IMG_HEIGHT, IMG_WIDTH = args.imgdims
+LEARNING_RATE = args.lr
+BATCH_SIZE = args.bs
+EPOCHS = args.epochs
+FREQ = args.freq
+GENERATE = args.generate
+ENCODER = args.encoder
 physical_devices = tf.config.list_physical_devices('GPU')
+
 try:
     tf.config.experimental.set_memory_growth(physical_devices[0], True)
 except RuntimeError as e:
@@ -59,8 +80,11 @@ def plot_stats(stats, col):
 
             
 def forward_model(encoder, decoder, x):
-    encoder_output = encoder(x)
-    logits, embeddings = decoder(encoder_output)
+    support_img, query_img, support_mask = x
+    support_mask = tf.expand_dims(support_mask, -1)
+    support_skips = encoder(support_img, training=False)
+    query_skips = encoder(query_img, training=False)
+    logits, embeddings = decoder(support_skips, query_skips, support_mask)
     return logits, embeddings
 
 
@@ -71,15 +95,12 @@ def compute_loss(encoder, decoder, x, masks):
     return scce_loss, logits
 
 
-def calc_iou_per_class(encoder, decoder, X, y, class_names, ious_per_class):
-    for i in range(len(X)):
-        x = np.expand_dims(X[i], 0)
-        target = np.expand_dims(y[i], 0).astype(int)
-        logit, _ = forward_model(encoder, decoder, x)
-        target = np.expand_dims(y[i], 0).astype(int)  
-        pred = np.argmax(logit.numpy(), axis=-1).astype(int)
-        iou = np.sum(np.logical_and(target, pred))/np.sum(np.logical_or(target, pred))
-        ious_per_class[class_names[i]] += iou
+def calc_iou_per_class(encoder, decoder, x, y, class_names, ious_per_class):
+    target = y.astype(int)
+    logit, _ = forward_model(encoder, decoder, x)
+    pred = np.argmax(logit.numpy(), axis=-1).astype(int)
+    iou = np.sum(np.logical_and(target, pred))/np.sum(np.logical_or(target, pred))
+    ious_per_class[class_names] += iou
     return ious_per_class
 
 
@@ -92,65 +113,62 @@ def train_step(encoder, decoder, x, masks, optimizer):
     with tf.GradientTape() as tape:
         loss, _  = compute_loss(encoder, decoder, x, masks)
     gradients = tape.gradient(loss, decoder.trainable_variables)
+    gradients, _ = tf.clip_by_global_norm(gradients, 3.0)
     optimizer.apply_gradients(zip(gradients, decoder.trainable_variables))
     return loss
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Specify dataset')
-    parser.add_argument("--fold", type=int, help='validation fold', default=1)
-    parser.add_argument("--imgdims", type=tuple, default=(3, 384, 512))
-    parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--bs", type=int, default=16)
-    parser.add_argument("--epochs", type=int, default=100)
-    parser.add_argument("--freq", type=int, default=10)
-    parser.add_argument("--generate", type=bool, help='generate embeddings', default=False)
-    parser.add_argument("--encoder", type=str, help='choose encoder', default='mobilenet_v2')
-    args = parser.parse_args()
-    
-    FOLD = args.fold
-    NUM_CHANNELS, IMG_HEIGHT, IMG_WIDTH = args.imgdims
-    LEARNING_RATE = args.lr
-    BATCH_SIZE = args.bs
-    EPOCHS = args.epochs
-    FREQ = args.freq
-    GENERATE = args.generate
-    ENCODER = args.encoder
-
-    pp = pprint.PrettyPrinter(width=100, compact=True)
+if __name__ == "__main__":    
     tf.keras.backend.clear_session()
-    optimizer = tf.keras.optimizers.Adam(1e-4)
+    optimizer = tf.keras.optimizers.Adam(LEARNING_RATE)
     training_stats = []
-    train_iou_per_class = defaultdict(int)
-    data_generator = DataGenerator(fold=FOLD)
-    train_count_per_class = Counter(data_generator.train_class_names)
-    val_count_per_class = Counter(data_generator.val_class_names)
+    train_data_generator = FewShotDataGenerator(fold=FOLD)
+    val_data_generator = FewShotDataGenerator(fold=FOLD, mode="val")
+    val_iou_per_class = defaultdict(int)
     
     encoder_options = {
-                        "mobilenet_v2": mobilenet_v2_encoder,
+                        "mobilenet_v2": mobilenet_v2_encoder_v2,
                     }
     chosen_encoder = encoder_options[ENCODER]
     print(f"You have selected Model {ENCODER}")
     encoder = chosen_encoder(args.imgdims)
-    decoder = Decoder()
+    decoder = Decoderv4(IMG_HEIGHT, IMG_WIDTH, NUM_CHANNELS)
 
     for epoch in range(1, EPOCHS + 1):
         start_time = time.time()
-        val_iou_per_class = defaultdict(int)
         batch_losses = []
-        data_generator.setmode("train")
-        for i, (batch_imgs, batch_masks, batch_classnames) in enumerate(tqdm(data_generator)):
-            batch_loss = train_step(encoder, decoder, batch_imgs, batch_masks, optimizer)
-            batch_losses.append(batch_loss.numpy())
+        for support_imgs, query_imgs, support_masks, query_masks,_, _ in train_data_generator.get_batch_data():
+            batch_size = len(support_imgs)
+            for i in range(batch_size):
+                input_data = (support_imgs[i], query_imgs[i], support_masks[i])
+                batch_loss = train_step(encoder, decoder, input_data, query_masks[i], optimizer)
+                batch_losses.append(batch_loss.numpy())
         train_loss = float(np.mean(batch_losses))
-        batch_losses = []
-        data_generator.setmode("val")
-        for i, (batch_imgs, batch_masks, batch_classnames) in enumerate(tqdm(data_generator)):
-            batch_losses, _ = compute_loss(encoder, decoder, batch_imgs, batch_masks)
-            val_iou_per_class = calc_iou_per_class(encoder, decoder, batch_imgs, batch_masks, batch_classnames, val_iou_per_class)
+        val_loss = 0
+        val_count_per_class = defaultdict(int)
+       
+        if epoch % FREQ == 0:
+            batch_losses = []
+            for support_imgs, query_imgs, support_masks, query_masks, support_fnames, query_fnames in val_data_generator.get_batch_data():
+                input_data = (support_imgs, query_imgs, support_masks)
+                batch_loss, _ = compute_loss(encoder, decoder, input_data, query_masks)
+                batch_losses.append(batch_loss.numpy())
+                query_class_names = query_fnames[0].split("-")[0]
+                val_iou_per_class = calc_iou_per_class(encoder, decoder, input_data, query_masks, query_class_names, val_iou_per_class)
+                val_count_per_class[query_class_names] += 1
+                
+       
+            val_loss = float(np.mean(batch_losses))
+            mean_iou = []
+            for k,v in val_iou_per_class.items():
+                iou = v/val_count_per_class[k]
+                val_iou_per_class[k] = iou
+                mean_iou.append(iou)
+            print("Mean IOU ", np.mean(mean_iou))
+            pp.pprint(f"Val ious: {val_iou_per_class}")
         
-        val_loss = float(np.mean(batch_losses))
-        val_iou_per_class = {k: v/val_count_per_class[k] for k,v in val_iou_per_class.items()}
+        
+
         end_time = time.time()
         epoch_time = (end_time - start_time)/60
 
@@ -160,40 +178,20 @@ if __name__ == "__main__":
             "val loss": val_loss,
             "epoch time": epoch_time
             })
-            
+           
         print(f"Epoch:{epoch}, Train loss:{train_loss:.3f}, Val loss:{val_loss:.3f}, Epoch Time:{epoch_time:.5f} minutes")
-        pp.pprint(f"Val ious: {val_iou_per_class}")
+        
+        """
         if epoch % FREQ == 1:
             print(f"img shape-{batch_imgs.shape}, masks shape-{batch_masks.shape}, num_images-{len(batch_classnames)}")
-            data_generator.setmode("val")
             batch_imgs, batch_masks, batch_classnames  = next(iter(data_generator))
             plot_prediction(encoder, decoder, batch_imgs, batch_masks, batch_classnames)
             plot_stats(pd.DataFrame(training_stats), "train loss")
-            plot_stats(pd.DataFrame(training_stats), "val loss")
+            plot_stats(pd.DataFrame(training_stats), "val loss")]
+        """
     
-    pp.pprint(f"Train ious: {train_iou_per_class}")
     total_training_time = sum([i["epoch time"] for i in training_stats])
-    print(f"Total model training time {total_training_time:.2f} minutes")
+    print(f"Total model training time {total_training_time/60:.2f} hours")
 
-    data_generator.setmode("train")
-    for i, (batch_imgs, batch_masks, batch_classnames) in enumerate(tqdm(data_generator)):
-        train_iou_per_class = calc_iou_per_class(encoder, decoder, batch_imgs, batch_masks, batch_classnames, train_iou_per_class)
-        train_iou_per_class = {k: v/train_count_per_class[k] for k,v in train_iou_per_class.items()}
     
-    """
-    encoder.save_weights("./data/pascal_voc/embedding_ckpt/encoder_weights")
-    decoder.save_weights("./data/pascal_voc/embedding_ckpt/decoder_weights")
-  
     
-    train_stats_save_path_root = os.path.join(os.path.dirname(__file__), "data", "pascal_voc", "emb_train_stats")
-    os.makedirs(train_stats_save_path_root, exist_ok=True)
-
-    test_saved_model(encoder, decoder, chosen_encoder, batch_imgs, img_dims)
-
-    save_pickled_data(training_stats, os.path.join(train_stats_save_path_root, f"training_stats_exp_{experiment_number}.pkl"))
-    save_pickled_data(iou_per_class_list, os.path.join(train_stats_save_path_root, f"iou_per_class_list_exp_{experiment_number}.pkl"))
-    if generate_embeddings:
-        save_embeddings(encoder, decoder, "train", **model_kwargs)
-        save_embeddings(encoder, decoder,"val", **model_kwargs)
-    test_saved_embeddings()
-    """

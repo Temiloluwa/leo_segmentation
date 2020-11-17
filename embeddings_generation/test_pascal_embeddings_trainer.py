@@ -71,7 +71,8 @@ def test_num_images_per_class(hyper_params):
         assert dict(Counter(val_class_names)) == dict(Counter(val_class_names_from_file)),\
                      "Fold:{fold}, propotion per class in val wrong"
 """
-"""
+
+
 def test_train_few_shot_generator(hyper_params):
     for fold in range(4):
         train_datagenerator = FewShotDataGenerator(fold, config=pytest.config)
@@ -84,7 +85,7 @@ def test_train_few_shot_generator(hyper_params):
         val_batch_size = pytest.config.val_batch_size
 
         for i in range(10):
-            batch_data = train_datagenerator.get_batch_data()
+            batch_data = next(train_datagenerator.get_batch_data()):
             assert batch_data[0].shape == (train_batch_size, n_support, img_height, img_width, num_channels)
             assert batch_data[1].shape == (train_batch_size, n_query, img_height, img_width, num_channels)
             assert batch_data[2].shape == (train_batch_size, n_support, img_height, img_width)
@@ -92,7 +93,8 @@ def test_train_few_shot_generator(hyper_params):
             for class_batch in batch_data[4] + batch_data[5]:
                 class_name, fn_name = class_batch.split("-")
                 assert fn_name in train_datagenerator.train_path_map[class_name]
-"""
+
+
 
 def test_val_few_shot_generator(hyper_params):
     for fold in range(4):
