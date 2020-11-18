@@ -295,13 +295,13 @@ class LEO(tf.keras.Model):
             tr_val_loss, seg_weight_grad, decoder_gradients, prediction, weight = self.finetuning_inner_loop(data, features, \
                                                                         seg_weight_grad, mode)
             if mode == "meta_train":
-                decoder_gradients = [tf.clip_by_norm(grad/num_tasks, gradient_clip_norm) for grad in decoder_gradients]
+                decoder_gradients = [tf.clip_by_value(grad/num_tasks, -gradient_clip_norm, gradient_clip_norm) for grad in decoder_gradients]
                 if total_gradients is None:
                     total_gradients = decoder_gradients
-                    seg_weight_grad = tf.clip_by_norm(seg_weight_grad/num_tasks, gradient_clip_norm)
+                    seg_weight_grad = tf.clip_by_value(seg_weight_grad/num_tasks, -gradient_clip_norm, gradient_clip_norm)
                 else:
                     total_gradients = [total_gradients[i] + decoder_gradients[i] for i in range(len(decoder_gradients))]
-                    seg_weight_grad += tf.clip_by_norm(seg_weight_grad/num_tasks, gradient_clip_norm)
+                    seg_weight_grad += tf.clip_by_value(seg_weight_grad/num_tasks, -gradient_clip_norm, gradient_clip_norm)
                 
             mean_iou, val_loss = self.evaluate(data, prediction, weight, transformers, mode)
             val_loss = tr_val_loss if mode == "meta_train" else val_loss
