@@ -36,6 +36,10 @@ def meta_classes_selector(config, dataset, shuffle_classes=False):
             meta_classes_splits (dict): classes all data types
     """
 
+    classes = os.listdir(os.path.join(os.path.dirname(__file__),
+                                 "data", f"{dataset}", "images"))
+    classes = sorted(classes)
+                                 
     def extract_splits(classes, meta_split):
         """ Returns class splits for a meta train, val or test """
         class_split = []
@@ -43,31 +47,27 @@ def meta_classes_selector(config, dataset, shuffle_classes=False):
             class_split.extend(classes[meta_split[i*2]:meta_split[i*2+1]])
         return class_split
 
-    splits = config.data_params.meta_class_splits
-    if dataset in config.datasets:
-        data_path = os.path.join(os.path.dirname(__file__), config.data_path,
-                                 f"{dataset}", "meta_classes.pkl")
-        if os.path.exists(data_path):
-            meta_classes_splits = load_pickled_data(data_path)
-        else:
-            classes = os.listdir(os.path.join(os.path.dirname(__file__),
-                                 "data", f"{dataset}", "images"))
-            if shuffle_classes:
-                random.shuffle(classes)
-            
-            meta_classes_splits = {"meta_train": extract_splits(classes, splits.meta_train),
-                                   "meta_val": extract_splits(classes, splits.meta_val),
-                                   "meta_test": extract_splits(classes, splits.meta_test)}
+    
+    if "pascal" in dataset:
+        pascal_splits = {
+            "pascal_5i_fold_0":{"meta_train":[5, 20], "meta_val":[0, 5], "meta_test":[0, 5]},
+            "pascal_5i_fold_1":{"meta_train":[0, 5, 10, 20], "meta_val":[5, 10], "meta_test":[5, 10]},
+            "pascal_5i_fold_2":{"meta_train":[0, 10, 15, 20], "meta_val":[10, 15], "meta_test":[10, 15]},
+            "pascal_5i_fold_3":{"meta_train":[0, 15], "meta_val":[15, 20], "meta_test":[15, 20]},
+        }
+        splits = edict(pascal_splits[dataset])
+    else:
+        splits = config.data_params.meta_class_splits
 
-            total_count = len(set(meta_classes_splits["meta_train"] +
-                              meta_classes_splits["meta_val"] +
-                              meta_classes_splits["meta_test"]))
-            assert total_count == len(classes), "check ratios supplied"
-            if os.path.exists(data_path):
-                os.remove(data_path)
-                save_pickled_data(meta_classes_splits, data_path)
-            else:
-                save_pickled_data(meta_classes_splits, data_path)
+    meta_classes_splits = {"meta_train": extract_splits(classes, splits.meta_train),
+                            "meta_val": extract_splits(classes, splits.meta_val),
+                            "meta_test": extract_splits(classes, splits.meta_test)}
+
+    total_count = len(set(meta_classes_splits["meta_train"] +
+                        meta_classes_splits["meta_val"] +
+                        meta_classes_splits["meta_test"]))
+    assert total_count == len(classes), "check ratios supplied"
+    
     return edict(meta_classes_splits)
 
 
