@@ -1,0 +1,4 @@
+leo_segmentation/__pycache__/
+*.pyc
+leo_segmentation/group_by_classes.py
+*.npy
