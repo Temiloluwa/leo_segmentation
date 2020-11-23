@@ -2,6 +2,7 @@ import torch, os
 import numpy as np
 from torch import nn
 from tqdm import tqdm
+import torch.nn.functional as F
 from torch.distributions import Normal
 from torch.utils.tensorboard import SummaryWriter
 from utils import display_data_shape, get_named_dict, one_hot_target, \
@@ -62,6 +63,20 @@ class RelationNetwork(nn.Module):
         out = self.relation(concat_features)
         return out
 
+class SegmentationNetwork(nn.Module):
+    def __init__(self):
+        super(SegmentationNetwork, self).__init__()
+        layers = [nn.Conv2d(14,2,kernel_size=1,padding=0)] # 256 x 256
+        self.segmentation = nn.Sequential(*layers)
+
+    def forward(self, inputs, predicted_weights):
+        out = torch.mul(inputs, predicted_weights)
+        #print(out.shape)
+        out = self.segmentation(out)
+        #print(pred.shape)
+        pred = torch.sigmoid(out)
+        #print(pred.shape)
+        return pred
 
 class LEO(nn.Module):
     """
@@ -79,7 +94,8 @@ class LEO(nn.Module):
         self.RelationNetwork = RelationNetwork(256, 128)
         self.dec3 = _DecoderBlock(128, 64)
         self.dec2 = _DecoderBlock(64, 32)
-        self.dec1 = _DecoderBlock(32, 28)
+        self.dec1 = _DecoderBlock(32, 14)
+        self.seg = SegmentationNetwork()
         self.device = torch.device("cuda:0" if torch.cuda.is_available() and config.use_gpu else "cpu")
 
     def encoder(self, embeddings):
@@ -175,16 +191,8 @@ class LEO(nn.Module):
         latents = eps * torch.exp(logvar * 0.5) + mean
         return latents, mean, logvar
 
-    def seg_network(self, inputs, predicted_weights):
-        channel_zero = inputs * predicted_weights[:, :14, :, :]
-        channel_zero = torch.unsqueeze(torch.mean(channel_zero, dim=1), 1)
-        channel_one = inputs * predicted_weights[:, 14:, :, :]
-        channel_one = torch.unsqueeze(torch.mean(channel_one, dim=1), 1)
-        pred = torch.cat([channel_zero, channel_one], 1)
-        return pred
-
     def calculate_inner_loss(self, inputs, targets, predicted_weights):
-        pred = self.seg_network(inputs, predicted_weights)
+        pred = self.seg(inputs, predicted_weights)
         hot_targets = one_hot_target(targets)
         hot_targets.requires_grad = True
         pred = torch.clamp(pred, -10, 3.0)

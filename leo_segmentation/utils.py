@@ -15,47 +15,49 @@ def load_config(config_path: str = "data/config.json"):
     return edict(config)
 
 
-def meta_classes_selector(config, dataset, generate_new, shuffle_classes=False):
+def meta_classes_selector(config, dataset, shuffle_classes=False):
+    """ Returns a dictionary containing classes for meta_train, meta_val,
+        and meta_test_splits
+        Args:
+            config (dict) : config
+            dataset (str) : name of dataset
+            ratio (list) : list containing ratios alloted to each data type
+        Returns:
+            meta_classes_splits (dict): classes all data types
     """
-    Returns a dictionary containing classes for meta_train, meta_val, and meta_test_splits
-    e.g if total available classes are:["aeroplane", "dog", "cat", "sheep", "window"]
-    ratio [3,2,1] returns: meta_train:["aeroplane", "dog"], meta_val:["cat", "sheep"], meta_test:["window"]
-    Args:
-        dataset(str) - name of dataset
-        ratio(list) - list containing number of classes to allot to each of meta_train,
-                            meta_val, and meta_test. e.g [3,2,2]
-        generate_new(bool) - generate new splits or load splits already saved as pickle file
-        shuffle_classes(bool) - shuffle classes before splitting
-    Returns:
-        meta_classes_splits(dict): contains classes for meta_train, meta_val and meta_test
-    """
-    class_splits = config.data_params.meta_class_splits
+
+    def extract_splits(classes, meta_split):
+        """ Returns class splits for a meta train, val or test """
+        class_split = []
+        for i in range(len(meta_split) // 2):
+            class_split.extend(classes[meta_split[i * 2]:meta_split[i * 2 + 1]])
+        return class_split
+
+    splits = config.data_params.meta_class_splits
     if dataset in config.datasets:
-        data_path = os.path.join(os.path.dirname(__file__), config.data_path, f"{dataset}", "meta_classes.pkl")
-        if os.path.exists(data_path) and not generate_new:
+        data_path = os.path.join(os.path.dirname(__file__), config.data_path,
+                                 f"{dataset}", "meta_classes.pkl")
+        if os.path.exists(data_path):
             meta_classes_splits = load_pickled_data(data_path)
         else:
-            classes = os.listdir(os.path.join(os.path.dirname(__file__), config.data_path, f"{dataset}", "images"))
+            classes = os.listdir(os.path.join(os.path.dirname(__file__),
+                                              "data", f"{dataset}", "images"))
             if shuffle_classes:
                 random.shuffle(classes)
-            meta_classes_splits = {"meta_train": classes[class_splits.meta_train[0]:class_splits.meta_train[1]],
-                                   "meta_val": classes[class_splits.meta_val[0]:class_splits.meta_val[1]],
-                                   "meta_test": classes[class_splits.meta_test[0]:class_splits.meta_test[1]]}
 
-            total_count = class_splits.meta_train[1] - class_splits.meta_train[0] + \
-                          class_splits.meta_val[1] - class_splits.meta_val[0] + \
-                          class_splits.meta_test[1] - class_splits.meta_test[0]
+            meta_classes_splits = {"meta_train": extract_splits(classes, splits.meta_train),
+                                   "meta_val": extract_splits(classes, splits.meta_val),
+                                   "meta_test": extract_splits(classes, splits.meta_test)}
 
-            assert len(set(meta_classes_splits["meta_train"] + \
-                           meta_classes_splits["meta_val"] + \
-                           meta_classes_splits["meta_test"])) == total_count, "error exists in the ratios supplied"
-
+            total_count = len(set(meta_classes_splits["meta_train"] +
+                                  meta_classes_splits["meta_val"] +
+                                  meta_classes_splits["meta_test"]))
+            assert total_count == len(classes), "check ratios supplied"
             if os.path.exists(data_path):
                 os.remove(data_path)
                 save_pickled_data(meta_classes_splits, data_path)
             else:
                 save_pickled_data(meta_classes_splits, data_path)
-
     return edict(meta_classes_splits)
 
 

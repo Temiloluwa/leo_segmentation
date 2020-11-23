@@ -14,7 +14,9 @@ class Datagenerator(Dataset):
         self._config = config
         self._dataset = dataset
         self._data_type = data_type
-        self.classes_dict = meta_classes_selector(config, dataset, generate_new_metaclasses)
+        self.classes_dict = meta_classes_selector(config, dataset)
+        #print(self._data_type)
+        #print(self.classes_dict)
 
     def __len__(self):
         return len(self._dataset)
@@ -111,6 +113,12 @@ class TrainingStats():
     """Stores train statistics data"""
 
     def __init__(self, config):
+        self._meta_train_stats = []
+        self._meta_val_stats = []
+        self._meta_test_stats = []
+        self._meta_train_ious = []
+        self._meta_val_ious = []
+        self._meta_test_ious = []
         self._stats = []
         self.config = config
 
@@ -127,6 +135,7 @@ class TrainingStats():
         self.kl_loss = kwargs["kl_loss"]
         self.total_val_loss = kwargs["total_val_loss"]
         self.mean_iou_dict = kwargs["mean_iou_dict"]
+        self.mean_iou_dict["episode"] = self.episode
         self._stats.append({
             "mode": self.mode,
             "episode": self.episode,
@@ -134,6 +143,31 @@ class TrainingStats():
             "total_val_loss": self.total_val_loss,
             "mean_iou_dict": self.mean_iou_dict
         })
+        _stats = {
+            "mode": self.mode,
+            "episode": self.episode,
+            "kl_loss": self.kl_loss,
+            "total_val_loss": self.total_val_loss,
+        }
+        if self.mode == "meta_train":
+            self._meta_train_stats.append(_stats)
+            self._meta_train_ious.append(self.mean_iou_dict)
+        elif self.mode == "meta_val":
+            self._meta_val_stats.append(_stats)
+            self._meta_val_ious.append(self.mean_iou_dict)
+        else:
+            self._meta_test_stats.append(_stats)
+            self._meta_test_ious.append(self.mean_iou_dict)
+
+        mean_iou_dict = self.mean_iou_dict.copy()
+        mean_iou_dict.pop("episode")
+        average_iou = np.mean([v for _, v in mean_iou_dict.items()])
+        mean_iou_string = print_to_string_io(mean_iou_dict, True)
+        msg = f"\nmode: {self.mode}, episode: {self.episode: 03d}, kl_loss:{self.kl_loss:2f}, "\
+            + f"total_val_loss: {self.total_val_loss:2f}, "\
+            + f"\nval_mean_iou:{mean_iou_string} "\
+            + f"Average of all ious:{average_iou}"
+        self.stats_msg = msg
         self.log_model_stats_to_file()
 
     def update_inner_loop_stats(self, **kwargs):
@@ -161,7 +195,7 @@ class TrainingStats():
             mean_iou_string = print_to_string_io(self.mean_iou_dict, pretty_print=True)
             msg = f"\nmode:{self.mode}, episode:{self.episode:03d}, kl_loss:{self.kl_loss:2f}, "
             msg += f"total_val_loss:{self.total_val_loss:2f} \nval_mean_iou:{mean_iou_string}"
-            f.write(msg)
+            f.write(self.stats_msg)
 
     def get_stats(self):
         return pd.DataFrame(self._stats)
@@ -170,7 +204,4 @@ class TrainingStats():
         return self._stats[-1]
 
     def disp_stats(self):
-        mean_iou_string = print_to_string_io(self.mean_iou_dict, pretty_print=True)
-        msg = f"\nmode:{self.mode}, episode:{self.episode:03d}, kl_loss:{self.kl_loss:2f}, "
-        msg += f"total_{self.mode}_loss:{self.total_val_loss:2f} \nval_mean_iou:{mean_iou_string}"
-        print(msg)
+        print(self.stats_msg)

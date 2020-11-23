@@ -1,30 +1,30 @@
 {
     "train":true,
     "use_gpu":true,
-    "checkpoint_interval":2,
+    "checkpoint_interval":10,
     "display_stats_interval":10,
-    "validation_step":10,
+    "validation_step":5,
     "dtype":"float32",
     "data_path":"data",
     "datasets":["pascal_voc", "sample_data", "fss1000", "pascal_voc_raw"],
 	"data_params":{
         "num_classes":1,
         "img_dims":{"channels":3, "height":384, "width": 512},
-        "meta_class_splits":{"meta_train":[0, 10], "meta_val":[10, 15], "meta_test":[15,20]},
-        "n_train_per_class":{"meta_train":2, "meta_val":2, "meta_test":2},
-        "n_val_per_class":{"meta_train":5, "meta_val":5, "meta_test":20},
-        "num_tasks":{"meta_train":7, "meta_val":5, "meta_test":5}
+        "meta_class_splits":{"meta_train":[0, 5, 10, 20], "meta_val":[5, 10], "meta_test":[5, 10]},
+        "n_train_per_class":{"meta_train":5, "meta_val":5, "meta_test":5},
+        "n_val_per_class":{"meta_train":5, "meta_val":"rest", "meta_test":"rest"},
+        "num_tasks":{"meta_train":10, "meta_val":5, "meta_test":5}
     },
-    "experiment":{"number":1, "episode":-1, "description":"using_new_embeddings", "prompt_deletion":true},
+    "experiment":{"number":8, "episode":-1, "description":"using_new_embeddings_psacl5i_fold3", "prompt_deletion":true},
     "hyperparameters":{
-        "outer_loop_lr":1e-4,
-        "inner_loop_lr":1e-4,
-        "finetuning_lr":1e-4,
+        "outer_loop_lr":1e-3,
+        "inner_loop_lr":1e-3,
+        "finetuning_lr":1e-3,
         "dropout_rate":0.2,
         "kl_weight":0.5,
         "num_latents":50,
-        "num_finetuning_steps":5,
-        "num_adaptation_steps":5,
-        "episodes":4
+        "num_finetuning_steps":10,
+        "num_adaptation_steps":10,
+        "episodes":200
     }
 }
