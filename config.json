@@ -15,9 +15,9 @@
         "n_val_per_class":{"meta_train":5, "meta_val":"rest", "meta_test":"rest"},
         "num_tasks":{"meta_train":5, "meta_val":5, "meta_test":5}
     },
-    "experiment":{"number":23, "episode":1, "description":"pascal_fold_1", "prompt_deletion":false},
+    "experiment":{"number":24, "episode":1, "description":"pascal_fold_1", "prompt_deletion":false},
     "hyperparameters":{
-        "base_num_covs":8,
+        "base_num_covs":32,
         "max_grad_norm":3.0,
         "outer_loop_lr":1e-3,
         "inner_loop_lr":1e-3,
