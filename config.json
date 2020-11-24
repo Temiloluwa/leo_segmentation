@@ -68,8 +68,8 @@
         "inner_loop_lr": 0.001,
         "finetuning_lr": 0.001,
         "dropout_rate": 0.2,
-        "num_finetuning_steps": 10,
+        "num_finetuning_steps": 5,
         "num_adaptation_steps": 10,
-        "episodes": 1000
+        "episodes": 300
     }
 }
