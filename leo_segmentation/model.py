@@ -96,14 +96,17 @@ class LEO(nn.Module):
         self.mode = mode
         self.encoder = EncoderBlock()
         seg_network = nn.Conv2d(hyp.base_num_covs*5 + 3, hyp.base_num_covs*5, kernel_size=3, stride=1, padding=1)
-        seg_network2 = nn.Conv2d(hyp.base_num_covs*5, 2, kernel_size=3, stride=1, padding=1)
+        seg_network2 = nn.Conv2d(hyp.base_num_covs*5, hyp.base_num_covs*5, kernel_size=3, stride=1, padding=1)
+        seg_network3 = nn.Conv2d(hyp.base_num_covs*5, 2, kernel_size=3, stride=1, padding=1)
         self.seg_weight = seg_network.weight.detach().to(device)
         self.seg_weight2 = seg_network2.weight.detach().to(device)
+        self.seg_weight3 = seg_network3.weight.detach().to(device)
         self.seg_weight.requires_grad = True
         self.seg_weight2.requires_grad = True
+        self.seg_weight3.requires_grad = True
         self.loss_fn = CrossEntropyLoss()
         self.optimizer_seg_network = torch.optim.Adam(
-            [self.seg_weight, self.seg_weight2], lr=hyp.outer_loop_lr)
+            [self.seg_weight, self.seg_weight2, self.seg_weight3], lr=hyp.outer_loop_lr)
 
     def freeze_encoder(self):
         """ Freeze encoder weights """
@@ -136,7 +139,9 @@ class LEO(nn.Module):
         o = torch.cat([decoder_out, x], dim=1)
         o = F.conv2d(o, weight[0], padding=1)
         o = F.relu(o)
-        pred = F.conv2d(o, weight[1], padding=1)
+        o = F.conv2d(o, weight[1], padding=1)
+        o = F.relu(o)
+        pred = F.conv2d(o, weight[2], padding=1)
         return pred
 
     def forward(self, x, latents=None, weight=None):
@@ -163,12 +168,14 @@ class LEO(nn.Module):
         if weight is not None:
             seg_weight = weight[0]
             seg_weight2 = weight[1]
+            seg_weight3 = weight[2]
         else:
             seg_weight = self.seg_weight
             seg_weight2 = self.seg_weight2
+            seg_weight3 = self.seg_weight3
 
         features = self.forward_decoder(skip_features, latents)
-        pred = self.forward_segnetwork(features, x, [seg_weight,  seg_weight2])
+        pred = self.forward_segnetwork(features, x, [seg_weight,  seg_weight2, seg_weight3])
         return latents, features, pred
     
 
@@ -196,7 +203,7 @@ class LEO(nn.Module):
                 latents -= inner_lr * latents_grad
             latents, features, pred = self.forward(x, latents)
             tr_loss = self.loss_fn(pred, y.long())
-        seg_weight_grad = torch.autograd.grad(tr_loss, [self.seg_weight, self.seg_weight2],
+        seg_weight_grad = torch.autograd.grad(tr_loss, [self.seg_weight, self.seg_weight2, self.seg_weight3],
                                               create_graph=False)
         return seg_weight_grad, features
 
@@ -221,23 +228,25 @@ class LEO(nn.Module):
         img_transformer, mask_transformer = transformers
         weight = self.seg_weight - hyp.finetuning_lr * seg_weight_grad[0]
         weight2 = self.seg_weight2 - hyp.finetuning_lr * seg_weight_grad[1]
+        weight3 = self.seg_weight3 - hyp.finetuning_lr * seg_weight_grad[2]
 
         for _ in range(hyp.num_finetuning_steps - 1):
-            pred = self.forward_segnetwork(tr_features, data_dict.tr_imgs, [weight, weight2])
+            pred = self.forward_segnetwork(tr_features, data_dict.tr_imgs, [weight, weight2, weight3])
             tr_loss = self.loss_fn(pred, data_dict.tr_masks.long())
-            seg_weight_grad = torch.autograd.grad(tr_loss, [weight, weight2],
+            seg_weight_grad = torch.autograd.grad(tr_loss, [weight, weight2, weight3],
                                                   create_graph=False)
             weight = self.seg_weight - hyp.finetuning_lr * seg_weight_grad[0]
             weight2 = self.seg_weight2 - hyp.finetuning_lr * seg_weight_grad[1]
+            weight3 = self.seg_weight3 - hyp.finetuning_lr * seg_weight_grad[2]
 
         if mode == "meta_train":
-            _, _, prediction = self.forward(data_dict.val_imgs, weight=[weight, weight2])
+            _, _, prediction = self.forward(data_dict.val_imgs, weight=[weight, weight2, weight3])
             val_loss = self.loss_fn(prediction, data_dict.val_masks.long())
             grad_output = torch.autograd.grad(val_loss,
-                [weight, weight2] + list(self.decoder.parameters()), create_graph=False)
-            seg_weight_grad, decoder_grads = grad_output[:2], grad_output[2:]
+                [weight, weight2, weight3] + list(self.decoder.parameters()), create_graph=False)
+            seg_weight_grad, decoder_grads = grad_output[:3], grad_output[3:]
             mean_iou = calc_iou_per_class(prediction, data_dict.val_masks)
-            return val_loss, list(seg_weight_grad), decoder_grads, mean_iou, [weight, weight2]
+            return val_loss, list(seg_weight_grad), decoder_grads, mean_iou, [weight, weight2, weight3]
         else:
             with torch.no_grad():
                 mean_ious = []
@@ -247,14 +256,14 @@ class LEO(nn.Module):
                 for _img_path, _mask_path in tqdm(zip(val_img_paths, val_mask_paths)):
                     input_img = prepare_inputs(numpy_to_tensor(list_to_tensor(_img_path, img_transformer)))
                     input_mask = numpy_to_tensor(list_to_tensor(_mask_path, mask_transformer))
-                    _, _, prediction = self.forward(input_img, weight=[weight, weight2])
+                    _, _, prediction = self.forward(input_img, weight=[weight, weight2, weight3])
                     val_loss = self.loss_fn(prediction, input_mask.long()).item()
                     mean_iou = calc_iou_per_class(prediction, input_mask)
                     mean_ious.append(mean_iou)
                     val_losses.append(val_loss)
                 mean_iou = np.mean(mean_ious)
                 val_loss = np.mean(val_losses)
-            return val_loss, None, None, mean_iou, [weight, weight2]
+            return val_loss, None, None, mean_iou, [weight, weight2, weight3]
         
 
 def compute_loss(leo, metadata, train_stats, transformers, mode="meta_train"):
@@ -321,6 +330,7 @@ def compute_loss(leo, metadata, train_stats, transformers, mode="meta_train"):
                 params.grad = total_grads[i]
             leo.seg_weight.grad = seg_weight_grad[0]
             leo.seg_weight2.grad = seg_weight_grad[1]
+            leo.seg_weight3.grad = seg_weight_grad[2]
             leo.optimizer_decoder.step()
             leo.optimizer_seg_network.step()
         total_val_loss = float(sum(total_val_loss)/len(total_val_loss))
