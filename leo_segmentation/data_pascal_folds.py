@@ -10,7 +10,7 @@ from torchvision import transforms, utils, datasets
 from PIL import Image
 
 
-class Transform_image:
+class Pascal5iFoldsTransform_image:
     """Performs data preprocessing steps on input images
 
     Args:
@@ -43,7 +43,7 @@ class Transform_image:
         return im
 
 
-class Transform_mask:
+class Pascal5iFoldsTransform_mask:
     """Performs data preprocessing steps on input masks
 
     Args:
@@ -83,7 +83,7 @@ def rgb2gray(rgb):
     return np.dot(rgb[..., :3], [0.2989, 0.5870, 0.1140])
 
 
-class Datagenerator(Dataset):
+class Pascal5iFoldsDatagenerator(Dataset):
     """Sample task data for Meta-train, Meta-val and Meta-train tasks
 
     Args:
@@ -95,8 +95,8 @@ class Datagenerator(Dataset):
         self._data_type = data_type
         self.classes_dict = meta_classes_selector(config, dataset)
         img_dims = config.data_params.img_dims
-        self.transform_image = Transform_image(img_dims.width, img_dims.height)
-        self.transform_mask = Transform_mask(img_dims.width, img_dims.height)
+        self.transform_image = Pascal5iFoldsTransform_image(img_dims.width, img_dims.height)
+        self.transform_mask = Pascal5iFoldsTransform_mask(img_dims.width, img_dims.height)
 
     def __len__(self):
         return len(self._dataset)

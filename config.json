@@ -3,11 +3,15 @@
     "use_gpu": true,
     "checkpoint_interval": 10000,
     "display_stats_interval": 100,
-    "meta_val_interval": 10,
+    "meta_val_interval": 1,
     "dtype": "float32",
     "data_path": "data",
     "datasets": [
         "pascal_5i",
+        "pascal_5i_fold_0",
+        "pascal_5i_fold_1",
+        "pascal_5i_fold_2",
+        "pascal_5i_fold_3",
         "fss1000"
     ],
     "selected_data": "pascal_5i",

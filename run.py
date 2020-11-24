@@ -74,7 +74,7 @@ def train_model(dataset):
         #    save_model(leo, optimizer, config,
         #               edict(train_stats.get_latest_stats()))
         # meta-val stage
-        if episode % config.meta_val_interval == 1:
+        if episode % config.meta_val_interval == 0:
             dataloader = Datagenerator(dataset, mode="meta_val")
             train_stats.set_mode("meta_val")
             metadata = dataloader.get_batch_data()
