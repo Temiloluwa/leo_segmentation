@@ -25,6 +25,24 @@ def load_config(config_path: str = "config.json"):
     return edict(config)
 
 
+def one_hot_target(mask, channel_dim=1):
+    mask_inv = (~mask.type(torch.bool)).type(torch.float32)
+    channel_zero = torch.unsqueeze(mask_inv, channel_dim)
+    channel_one = torch.unsqueeze(mask, channel_dim)
+    return torch.cat((channel_zero, channel_one), axis=channel_dim)
+
+
+def softmax(py_tensor, channel_dim=1):
+    py_tensor = torch.exp(py_tensor)
+    return py_tensor / torch.unsqueeze(torch.sum(py_tensor, dim=channel_dim), channel_dim)
+
+
+def sparse_crossentropy(target, pred, channel_dim=1, eps=1e-10):
+    pred += eps
+    loss = torch.sum(-1 * target * torch.log(pred), dim=channel_dim)
+    return torch.mean(loss)
+
+
 def meta_classes_selector(config, dataset, shuffle_classes=False):
     """ Returns a dictionary containing classes for meta_train, meta_val,
         and meta_test_splits
@@ -36,44 +54,44 @@ def meta_classes_selector(config, dataset, shuffle_classes=False):
             meta_classes_splits (dict): classes all data types
     """
 
-    classes = os.listdir(os.path.join(os.path.dirname(__file__),
-                                 "data", f"{dataset}", "images"))
-    classes = sorted(classes)
-                                 
     def extract_splits(classes, meta_split):
         """ Returns class splits for a meta train, val or test """
         class_split = []
-        for i in range(len(meta_split)//2):
-            class_split.extend(classes[meta_split[i*2]:meta_split[i*2+1]])
+        for i in range(len(meta_split) // 2):
+            class_split.extend(classes[meta_split[i * 2]:meta_split[i * 2 + 1]])
         return class_split
 
-    
-    if "pascal" in dataset:
-        pascal_splits = {
-            "pascal_5i_fold_0":{"meta_train":[5, 20], "meta_val":[0, 5], "meta_test":[0, 5]},
-            "pascal_5i_fold_1":{"meta_train":[0, 5, 10, 20], "meta_val":[5, 10], "meta_test":[5, 10]},
-            "pascal_5i_fold_2":{"meta_train":[0, 10, 15, 20], "meta_val":[10, 15], "meta_test":[10, 15]},
-            "pascal_5i_fold_3":{"meta_train":[0, 15], "meta_val":[15, 20], "meta_test":[15, 20]},
-        }
-        splits = edict(pascal_splits[dataset])
-    else:
-        splits = config.data_params.meta_class_splits
+    splits = config.data_params.meta_class_splits
+    if dataset in config.datasets:
+        data_path = os.path.join(os.path.dirname(__file__), config.data_path,
+                                 f"{dataset}", "meta_classes.pkl")
+        if os.path.exists(data_path):
+            meta_classes_splits = load_pickled_data(data_path)
+        else:
+            classes = os.listdir(os.path.join(os.path.dirname(__file__),
+                                              "data", f"{dataset}", "images"))
+            if shuffle_classes:
+                random.shuffle(classes)
 
-    meta_classes_splits = {"meta_train": extract_splits(classes, splits.meta_train),
-                            "meta_val": extract_splits(classes, splits.meta_val),
-                            "meta_test": extract_splits(classes, splits.meta_test)}
+            meta_classes_splits = {"meta_train": extract_splits(classes, splits.meta_train),
+                                   "meta_val": extract_splits(classes, splits.meta_val),
+                                   "meta_test": extract_splits(classes, splits.meta_test)}
 
-    total_count = len(set(meta_classes_splits["meta_train"] +
-                        meta_classes_splits["meta_val"] +
-                        meta_classes_splits["meta_test"]))
-    assert total_count == len(classes), "check ratios supplied"
-    
+            total_count = len(set(meta_classes_splits["meta_train"] +
+                                  meta_classes_splits["meta_val"] +
+                                  meta_classes_splits["meta_test"]))
+            assert total_count == len(classes), "check ratios supplied"
+            if os.path.exists(data_path):
+                os.remove(data_path)
+                save_pickled_data(meta_classes_splits, data_path)
+            else:
+                save_pickled_data(meta_classes_splits, data_path)
     return edict(meta_classes_splits)
 
 
 def save_npy(np_array, filename):
     """Saves a .npy file to disk"""
-    filename = f"{filename}.npy" if len(os.path.splitext(filename)[-1]) == 0\
+    filename = f"{filename}.npy" if len(os.path.splitext(filename)[-1]) == 0 \
         else filename
     with open(filename, "wb") as f:
         return np.save(f, np_array)
@@ -81,7 +99,7 @@ def save_npy(np_array, filename):
 
 def load_npy(filename):
     """Reads a npy file"""
-    filename = f"{filename}.npy" if len(os.path.splitext(filename)[-1]) == 0\
+    filename = f"{filename}.npy" if len(os.path.splitext(filename)[-1]) == 0 \
         else filename
     with open(filename, "rb") as f:
         return np.load(f)
@@ -106,7 +124,7 @@ def numpy_to_tensor(np_data):
     config = load_config()
     np_data = np_data.astype(config.dtype)
     device = torch.device("cuda:0" if torch.cuda.is_available()
-                          and config.use_gpu else "cpu")
+                                      and config.use_gpu else "cpu")
     return torch.from_numpy(np_data).to(device)
 
 
@@ -177,11 +195,11 @@ def check_experiment(config):
     checkpoint_paths = os.path.join(model_root,
                                     f"experiment_{experiment.number}")
     existing_checkpoints = os.listdir(checkpoint_paths)
-    if f"experiment_{experiment.number}" in existing_models and\
-       f"checkpoint_{experiment.episode}.pth.tar" in existing_checkpoints:
+    if f"experiment_{experiment.number}" in existing_models and \
+            f"checkpoint_{experiment.episode}.pth.tar" in existing_checkpoints:
         return True
-    elif f"experiment_{experiment.number}" in existing_models and\
-         experiment.episode == -1:
+    elif f"experiment_{experiment.number}" in existing_models and \
+            experiment.episode == -1:
         return True
     else:
         create_log(config)
@@ -205,10 +223,10 @@ def prepare_inputs(data):
 def get_named_dict(metadata, batch):
     """Returns a named dict"""
     tr_imgs, tr_masks, val_imgs, val_masks, _, _, _ = metadata
-    data_dict = {'tr_imgs': prepare_inputs(tr_imgs[batch]),
-                 'tr_masks': prepare_inputs(tr_masks[batch]),
-                 'val_imgs':  prepare_inputs(val_imgs[batch]),
-                 'val_masks': prepare_inputs(val_masks[batch])}
+    data_dict = {'tr_imgs': tr_imgs[batch],
+                 'tr_masks': tr_masks[batch],
+                 'val_imgs': val_imgs[batch],
+                 'val_masks': val_masks[batch]}
     return edict(data_dict)
 
 
@@ -225,9 +243,9 @@ def display_data_shape(metadata):
     if type(metadata) == tuple:
         tr_imgs, tr_masks, val_imgs, val_masks, _, _, _ = metadata
         print(f"num tasks: {len(tr_imgs)}")
-        val_imgs_shape = f"{len(val_imgs)} list of paths"\
+        val_imgs_shape = f"{len(val_imgs)} list of paths" \
             if type(val_imgs) == list else val_imgs.shape
-        val_masks_shape = f"{len(val_imgs)} list of paths"\
+        val_masks_shape = f"{len(val_imgs)} list of paths" \
             if type(val_masks) == list else val_masks.shape
     print(f"tr_imgs shape: {tr_imgs.shape}, tr_masks shape: {tr_masks.shape}",
           f"val_imgs shape: {val_imgs_shape}, val_masks shape: {val_masks_shape}")
@@ -239,7 +257,7 @@ def calc_iou_per_class(pred_x, targets):
     for i in range(len(pred_x)):
         pred = np.argmax(tensor_to_numpy(pred_x[i]), 0).astype(int)
         target = tensor_to_numpy(targets[i]).astype(int)
-        iou = np.sum(np.logical_and(target, pred))/np.sum(np.logical_or(target, pred))
+        iou = np.sum(np.logical_and(target, pred)) / np.sum(np.logical_or(target, pred))
         iou_per_class.append(iou)
     mean_iou_per_class = np.mean(iou_per_class)
     return mean_iou_per_class
@@ -253,9 +271,9 @@ def plot_masks(mask_data, ground_truth=False):
                 it is a prediction
     """
     if ground_truth:
-        plt.imshow(np.mean(mask_data.numpy(), 0)/2 + 0.5, cmap="gray")
+        plt.imshow(np.mean(mask_data.numpy(), 0) / 2 + 0.5, cmap="gray")
     else:
-        plt.imshow(np.mean(mask_data.numpy())/2 + 0.5, cmap="gray")
+        plt.imshow(np.mean(mask_data.numpy()) / 2 + 0.5, cmap="gray")
 
 
 def print_to_string_io(variable_to_print, pretty_print=True, logger=None):
