@@ -175,7 +175,7 @@ class DecoderBlock(nn.Module):
         if d_train == True:
             return o, wd
         return o
-
+ 
 
 class LEO(nn.Module):
     """
@@ -191,6 +191,7 @@ class LEO(nn.Module):
         seg_network = nn.Conv2d(hyp.base_num_covs + 3, 2, kernel_size=3, stride=1, padding=1)
         self.seg_weight = seg_network.weight.detach().to(device)
         self.seg_weight.requires_grad = True
+        
         self.loss_fn = CrossEntropyLoss()
         self.optimizer_seg_network = torch.optim.Adam(
             [self.seg_weight], lr=hyp.outer_loop_lr)
@@ -418,7 +419,7 @@ def compute_loss(leo, metadata, train_stats, transformers, mode="meta_train"):
                     decoder_grads_.append(grad / num_tasks)
                 else:
                     decoder_grads_.append(0)
-            # decoder_grads = [grad / num_tasks for grad in decoder_grads]
+            
             if total_grads is None:
                 total_grads = decoder_grads_
                 seg_weight_grad = seg_weight_grad / num_tasks
@@ -426,6 +427,11 @@ def compute_loss(leo, metadata, train_stats, transformers, mode="meta_train"):
                 total_grads = [total_grads[i] + decoder_grads_[i] \
                                for i in range(len(decoder_grads_))]
                 seg_weight_grad += seg_weight_grad / num_tasks
+            
+            for i in range(len(total_grads)):
+                if type(total_grads[i]) is not int:
+                    total_grads[i] = torch.clamp(total_grads[i], min=-hyp.max_grad_norm, max=hyp.max_grad_norm)
+
         mean_iou_dict[classes[batch]] = mean_iou
         total_val_loss.append(val_loss)
     
@@ -438,6 +444,7 @@ def compute_loss(leo, metadata, train_stats, transformers, mode="meta_train"):
                 params.grad = total_grads[i]
             except:
                 params.grad = None
+
         leo.seg_weight.grad = seg_weight_grad
         leo.optimizer_decoder.step()
         leo.optimizer_seg_network.step()

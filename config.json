@@ -23,6 +23,7 @@
         "inner_loop_lr":1e-3,
         "finetuning_lr":1e-3,
         "dropout_rate":0.2,
+        "max_grad_norm":1.5,
         "kl_weight":0.5,
         "num_finetuning_steps":10,
         "num_adaptation_steps":5,
