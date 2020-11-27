@@ -8,8 +8,7 @@ from torch.nn import CrossEntropyLoss
 from torchvision import models
 from torch.nn import functional as F
 # from .aspp import build_aspp
-from tqdm import tqdm
-from utils import display_data_shape, get_named_dict, calc_iou_per_class, \
+from leo_segmentation.utils import display_data_shape, get_named_dict, calc_iou_per_class, \
     log_data, load_config, list_to_tensor, numpy_to_tensor, tensor_to_numpy
 
 config = load_config()
@@ -32,36 +31,26 @@ class EncoderBlock(nn.Module):
         self.squeeze_conv_l17 = nn.Conv2d(in_channels=320, out_channels=1, kernel_size=(1, 1), padding=(0, 0), stride=1)
         self.sigmoid = nn.Sigmoid()
 
-    def forward(self, x, Dtrain=False, we=None):
+    def forward(self, x, d_train=False, we=None):
         features = []
         cnt = 0
-        if we == None:
-            we = []
+        we = [] if we is None else we            
         output_layers = [3, 6, 13, 17]  # 56, 28, 14, 7
         for i, layer in enumerate(self.layers):
             x = layer(x)
             if i in output_layers:
-
-                if Dtrain == True:
+                if d_train == True:
                     features.append(x)
-                    if i == 3:
-                        we.append(self.sigmoid(self.squeeze_conv_l3(x)))
-                    elif i == 6:
-                        we.append(self.sigmoid(self.squeeze_conv_l6(x)))
-                    elif i == 13:
-                        we.append(self.sigmoid(self.squeeze_conv_l13(x)))
-                    elif i == 17:
-                        we.append(self.sigmoid(self.squeeze_conv_l17(x)))
+                    squeeze_conv_layer = getattr(self, f"squeeze_conv_l{i}")
+                    we.append(self.sigmoid(squeeze_conv_layer(x)))
                 elif len(we) > 0:
-                    print(len(we))
                     x = torch.mul(x, we[cnt])
                     features.append(x)
                     cnt += 1
                 else:
                     features.append(x)
         latents = x
-        if Dtrain == True:
-            # print(we)
+        if d_train == True:
             return features, latents, we
         return features, latents
 
@@ -135,19 +124,17 @@ class DecoderBlock(nn.Module):
         self.squeeze_final_out = nn.Conv2d(in_channels=8, out_channels=1, kernel_size=(1, 1), padding=(0, 0), stride=1)
         self.sigmoid = nn.Sigmoid()
 
-    def forward(self, skip_features, latents, Dtrain=False, wd=None):
-        if wd == None:
-            wd = []
-        if Dtrain == True:
-            self.in_channels = latents.shape[1]
+    def forward(self, skip_features, latents, d_train=False, wd=None):
+        wd = [] if wd is None else wd
+        if d_train == True:
             wd.append(self.sigmoid(self.squeeze_conv_latent(latents)))
         elif len(wd) > 0:
             if latents.shape[0] == 1:
                 latents_ = latents.clone().repeat(5, 1, 1, 1)
-                #print(latents_.shape)
                 latents_ = torch.mul(latents_, wd[0])
             else:
                 latents = torch.mul(latents, wd[0])
+
         if latents.shape[0] == 1:
             o = self.conv1(latents_)
         else:
@@ -157,7 +144,7 @@ class DecoderBlock(nn.Module):
             o = torch.cat([o, skip_f], dim=1)
         else:
             o = torch.cat([o, self.upsample(skip_features[-1])], dim=1)
-        if Dtrain == True:
+        if d_train == True:
             # self.in_channels = o.shape[1]
             wd.append(self.sigmoid(self.squeeze_conv1_out(o)))
         elif len(wd) > 0:
@@ -169,7 +156,7 @@ class DecoderBlock(nn.Module):
             o = torch.cat([o, skip_f], dim=1)
         else:
             o = torch.cat([o, self.upsample(skip_features[-2])], dim=1)
-        if Dtrain == True:
+        if d_train == True:
             # self.in_channels = o.shape[1]
             wd.append(self.sigmoid(self.squeeze_conv2_out(o)))
         elif len(wd) > 0:
@@ -181,7 +168,7 @@ class DecoderBlock(nn.Module):
             o = torch.cat([o, skip_f], dim=1)
         else:
             o = torch.cat([o, self.upsample(skip_features[-3])], dim=1)
-        if Dtrain == True:
+        if d_train == True:
             # self.in_channels = o.shape[1]
             wd.append(self.sigmoid(self.squeeze_conv3_out(o)))
         elif len(wd) > 0:
@@ -193,7 +180,7 @@ class DecoderBlock(nn.Module):
             o = torch.cat([o, skip_f], dim=1)
         else:
             o = torch.cat([o, self.upsample(skip_features[-4])], dim=1)
-        if Dtrain == True:
+        if d_train == True:
             # self.in_channels = o.shape[1]
             wd.append(self.sigmoid(self.squeeze_conv4_out(o)))
         elif len(wd) > 0:
@@ -202,14 +189,14 @@ class DecoderBlock(nn.Module):
         if latents.shape[0] == 1:
             o = torch.mean(o, dim=0).unsqueeze(0)
             #print(o.shape)
-        if Dtrain == True:
+        if d_train == True:
             # self.in_channels = o.shape[1]
             wd.append(self.sigmoid(self.squeeze_final_out(o)))
         elif len(wd) > 0:
             latents = torch.mul(o, wd[5])
         # print(o.shape)
         # print('---------------------------')
-        if Dtrain == True:
+        if d_train == True:
             return o, wd
         return o
 
@@ -250,10 +237,10 @@ class LEO(nn.Module):
         # for param in self.aspp.parameters():
         #    param.requires_grad = True
 
-    def forward_encoder(self, x, mode, Dtrain=False, we=None):
+    def forward_encoder(self, x, mode, d_train=False, we=None):
         """ Performs forward pass through the encoder """
-        if Dtrain == True:
-            skip_features, latents, we = self.encoder(x, Dtrain=Dtrain)
+        if d_train == True:
+            skip_features, latents, we = self.encoder(x, d_train=d_train)
         else:
             skip_features, latents = self.encoder(x, we)
         # aspp_latents = self.aspp(latents)
@@ -262,15 +249,14 @@ class LEO(nn.Module):
         # latent_dist_params = self.average_codes_per_class(relation_network_outputs, total_num_examples)
         if not latents.requires_grad:
             latents.requires_grad = True
-        if Dtrain == True:
-            # print('we', len(we))
+        if d_train == True:
             return skip_features, latents, we
         return skip_features, latents
 
-    def forward_decoder(self, skip_features, latents, Dtrain=False, wd=None):
+    def forward_decoder(self, skip_features, latents, d_train=False, wd=None):
         """Performs forward pass through the decoder"""
-        if Dtrain == True:
-            output = self.decoder(skip_features, latents, Dtrain=Dtrain)
+        if d_train == True:
+            output = self.decoder(skip_features, latents, d_train=d_train)
         elif wd != None:
             output = self.decoder(skip_features, latents, wd=wd)
         else:
@@ -292,7 +278,7 @@ class LEO(nn.Module):
         pred = F.conv2d(o, weight, padding=1)
         return pred
 
-    def forward(self, x, Dtrain=False, latents=None, weight=None, we=None, wd=None):
+    def forward(self, x, d_train=False, latents=None, weight=None, we=None, wd=None):
         """ Performs a forward pass through the entire network
             - The Autoencoder generates features using the inputs
             - Features are concatenated with the inputs
@@ -308,9 +294,8 @@ class LEO(nn.Module):
         """
 
         if latents is None:
-            # print('I am inside suspect zone')
-            if Dtrain == True:
-                skip_features, latents, we = self.forward_encoder(x, self.mode, Dtrain=Dtrain)
+            if d_train == True:
+                skip_features, latents, we = self.forward_encoder(x, self.mode, d_train=d_train)
             else:
                 skip_features, latents = self.forward_encoder(x, self.mode, we=we)
             self.skip_features = skip_features
@@ -322,19 +307,19 @@ class LEO(nn.Module):
         else:
             seg_weight = self.seg_weight
 
-        if Dtrain == True:
-            features, wd = self.forward_decoder(skip_features, latents, Dtrain=Dtrain)
-        elif wd != None:
+        if d_train == True:
+            features, wd = self.forward_decoder(skip_features, latents, d_train=d_train)
+        elif wd is not None:
             features = self.forward_decoder(skip_features, latents, wd=wd)
         else:
             features = self.forward_decoder(skip_features, latents)
         pred = self.forward_segnetwork(features, x, seg_weight)
-        if Dtrain == True and we != None:
-            # print('we', len(we))
-            # print('wd', len(wd))
+
+        if d_train == True and we is not None:
             return latents, features, pred, we
-        elif Dtrain == True and wd != None:
+        elif d_train == True and wd is not None:
             return latents, features, pred, wd
+
         return latents, features, pred
 
     def leo_inner_loop(self, x, y):
@@ -351,21 +336,16 @@ class LEO(nn.Module):
                 features(torch.Tensor): The last generated features
         """
         inner_lr = hyp.inner_loop_lr
-        latents, _, pred, w_e = self.forward(x, Dtrain=True)
-        # print('we', len(w_e))
-        # print('wd', len(w_d))
+        latents, _, pred, w_e = self.forward(x, d_train=True)
         tr_loss = self.loss_fn(pred, y.long())
         for _ in range(hyp.num_adaptation_steps):
             latents_grad = torch.autograd.grad(tr_loss, [latents], retain_graph=True, create_graph=False)[0]
             with torch.no_grad():
                 latents -= inner_lr * latents_grad
-            # print('suspected zone')
-            latents, features, pred, w_d = self.forward(x, latents=latents, Dtrain=True)
-            # _, _, _, w_e, w_d = self.forward(x, Dtrain=True)
+            latents, features, pred, w_d = self.forward(x, latents=latents, d_train=True)
             tr_loss = self.loss_fn(pred, y.long())
         seg_weight_grad = torch.autograd.grad(tr_loss, [self.seg_weight], retain_graph=True, create_graph=False)[0]
-        # print('we', len(w_e))
-        # print('wd', len(w_d))
+
         return seg_weight_grad, features, w_e, w_d
 
     def finetuning_inner_loop(self, data_dict, tr_features, seg_weight_grad, transformers, mode, we=None, wd=None):
@@ -391,13 +371,10 @@ class LEO(nn.Module):
             tr_loss = self.loss_fn(pred, data_dict.tr_masks.long())
             seg_weight_grad = torch.autograd.grad(tr_loss, [weight], retain_graph=True, create_graph=False)[0]
             weight -= hyp.finetuning_lr * seg_weight_grad
-        # for i in range(len(we)):
-        #  we[i].requires_grad = True
-        self.unfreeze_encoder
+    
         if mode == "meta_train":
             _, _, prediction = self.forward(data_dict.val_imgs, weight=weight, we=we, wd=wd)
             val_loss = self.loss_fn(prediction, data_dict.val_masks.long())
-            # print('I am here')
             grad_output = torch.autograd.grad(val_loss,
                                               [weight] + list(self.decoder.parameters()), retain_graph=True,
                                               create_graph=False, allow_unused=True)
@@ -410,7 +387,7 @@ class LEO(nn.Module):
                 val_losses = []
                 val_img_paths = data_dict.val_imgs
                 val_mask_paths = data_dict.val_masks
-                for _img_path, _mask_path in tqdm(zip(val_img_paths, val_mask_paths)):
+                for _img_path, _mask_path in zip(val_img_paths, val_mask_paths):
                     input_img = numpy_to_tensor(list_to_tensor(_img_path, img_transformer))
                     input_mask = numpy_to_tensor(list_to_tensor(_mask_path, mask_transformer))
                     _, _, prediction = self.forward(input_img, weight=weight, we=we, wd=wd)
@@ -454,7 +431,6 @@ def compute_loss(leo, metadata, train_stats, transformers, mode="meta_train"):
     leo.forward_encoder
     for batch in range(num_tasks):
         data_dict = get_named_dict(metadata, batch)
-        # print("I am entering inner loop")
         seg_weight_grad, features, we, wd = leo.leo_inner_loop(data_dict.tr_imgs, data_dict.tr_masks)
         val_loss, seg_weight_grad, decoder_grads, mean_iou, _ = \
             leo.finetuning_inner_loop(data_dict, features, seg_weight_grad,
@@ -476,7 +452,7 @@ def compute_loss(leo, metadata, train_stats, transformers, mode="meta_train"):
                 seg_weight_grad += seg_weight_grad / num_tasks
         mean_iou_dict[classes[batch]] = mean_iou
         total_val_loss.append(val_loss)
-    leo.unfreeze_encoder
+    
     if mode == "meta_train":
         leo.optimizer_decoder.zero_grad()
         leo.optimizer_seg_network.zero_grad()

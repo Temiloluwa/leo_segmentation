@@ -1,7 +1,7 @@
 {
     "train":true,
     "use_gpu":true,
-    "checkpoint_interval":100,
+    "checkpoint_interval":2000,
     "display_stats_interval":1,
     "meta_val_interval":5,
     "dtype":"float32",
@@ -9,14 +9,14 @@
     "datasets":["pascal_5i_fold_0", "pascal_5i_fold_1", "pascal_5i_fold_2", "pascal_5i_fold_3", "fss1000"],
 	"data_params":{
         "num_classes":1,
-        "fold":0,
+        "fold":2,
         "img_dims":{"channels":3, "height":224, "width": 224},
         "meta_class_splits":{"meta_train":[5, 20], "meta_val":[0, 5], "meta_test":[0, 5]},
         "n_train_per_class":{"meta_train":5, "meta_val":5, "meta_test":5},
         "n_val_per_class":{"meta_train":5, "meta_val":"rest", "meta_test":"rest"},
         "num_tasks":{"meta_train":5, "meta_val":5, "meta_test":5}
     },
-    "experiment":{"number":35, "episode":1, "description":"pascal_5i_fold_3_leo_fomaml_latest_v2_new_data", "prompt_deletion":false},
+    "experiment":{"number":37, "episode":1, "description":"pascal_5i_fold2", "prompt_deletion":false},
     "hyperparameters":{
         "base_num_covs":8,
         "outer_loop_lr":1e-3,
@@ -24,8 +24,8 @@
         "finetuning_lr":1e-3,
         "dropout_rate":0.2,
         "kl_weight":0.5,
-        "num_finetuning_steps":5,
+        "num_finetuning_steps":10,
         "num_adaptation_steps":5,
-        "episodes":1500
+        "episodes":3000
     }
 }

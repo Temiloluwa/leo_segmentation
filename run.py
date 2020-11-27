@@ -18,7 +18,7 @@ try:
         raise NameError("Move to except branch")
 except NameError:
     parser = argparse.ArgumentParser(description='Specify dataset')
-    parser.add_argument("-d", "--dataset", type=str, default="pascal_5i_fold_0")
+    parser.add_argument("-d", "--dataset", type=str, default="pascal_5i")
     args = parser.parse_args()
     dataset = args.dataset
 
@@ -66,26 +66,24 @@ def train_model(config, dataset):
         dataloader = Datagenerator(dataset, data_type="meta_train")
         metadata = dataloader.get_batch_data()
         transformers = (dataloader.transform_image, dataloader.transform_mask)
-        leo.freeze_encoder
         _, train_stats = compute_loss(leo, metadata, train_stats, transformers)
         if episode % config.checkpoint_interval == 0:
             save_model(leo, optimizer, config,
                        edict(train_stats.get_latest_stats()))
+        
         # meta-val stage
         if episode % config.meta_val_interval == 0:
-            print('Hey I am in Metaval')
             dataloader = Datagenerator(dataset, data_type="meta_val")
             train_stats.set_mode("meta_val")
             metadata = dataloader.get_batch_data()
             leo.mode = "meta_val"
             _, train_stats = compute_loss(leo, metadata, train_stats,
                                           transformers, mode="meta_val")
-            train_stats.disp_stats()
-            print('Hey I am outside Metaval')
+        
         if episode % config.display_stats_interval == 0:
             train_stats.disp_stats()
         episode_time = (time.time() - start_time) / 60
-        log_msg = f"Episode: {episode}, Episode Time: {episode_time:0.03f} minutes\n"
+        log_msg = f"Episode: {episode} |  Episode Time: {episode_time:0.03f} minutes\n"
         print_to_string_io(log_msg, False, train_logger)
         episode_times.append(episode_time)
 
@@ -101,14 +99,14 @@ def predict_model(dataset, model_and_params, transformers):
     """Implement Predicion on Meta-Test"""
     config = load_config()
     leo, _, train_stats = model_and_params
-    dataloader = Datagenerator(dataset, data_type="meta_test")
+    dataloader = Datagenerator(dataset, data_type="meta_val")
     train_stats.set_mode("meta_test")
     metadata = dataloader.get_batch_data()
     _, train_stats = compute_loss(leo, metadata, train_stats, transformers,
-                                  mode="meta_test")
+                                  mode="meta_val")
     train_stats.disp_stats()
     experiment = config.experiment
-    for mode in ["meta_train", "meta_val", "meta_test"]:
+    for mode in ["meta_train", "meta_val", "meta_val"]:
         stats_df = train_stats.get_stats(mode)
         ious_df = train_stats.get_ious(mode)
         stats_df.to_pickle(os.path.join(model_dir,

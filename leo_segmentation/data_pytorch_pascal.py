@@ -3,7 +3,7 @@ import collections
 import pandas as pd
 import numpy as np
 import random
-from utils import meta_classes_selector, print_to_string_io, \
+from leo_segmentation.utils import meta_classes_selector, print_to_string_io, \
     train_logger, val_logger, load_config, numpy_to_tensor
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, utils, datasets
@@ -259,6 +259,8 @@ class TrainingStats:
         self._meta_test_ious = []
         self._stats = []
         self.config = config
+        self._best_episode = 0
+        self._best_iou = 0
 
     def set_episode(self, episode):
         self.episode = episode
@@ -293,12 +295,25 @@ class TrainingStats:
         mean_iou_dict = self.mean_iou_dict.copy()
         mean_iou_dict.pop("episode")
         average_iou = np.mean([v for _, v in mean_iou_dict.items()])
+        self.update_best_iou(average_iou)
         mean_iou_string = print_to_string_io(mean_iou_dict, True)
-        msg = f"mode: {self.mode}, episode: {self.episode: 03d}, " \
-              + f"total_val_loss: {self.total_val_loss:2f}, " \
-              + f"\nval_mean_iou:{mean_iou_string} " \
-              + f"Average of all ious:{average_iou}"
-        self.stats_msg = msg
+        if self.mode == "meta_val":
+            start_msg = "\t\t ======= Meta Val IOUs ====== \n"
+        else:
+            start_msg  = ""
+        msg = f"Mode: {self.mode} | Episode: {self.episode: 03d} | " \
+              + f"Total Val Loss: {self.total_val_loss:2f} " \
+              + f"\n{mean_iou_string} " \
+        
+        if self.mode == "meta_val":
+            end_msg =  f"====> Average of all IOUs: {average_iou}\n" \
+              + f" ====> Best Episode: {self._best_episode}"\
+              + f" | Best IOU: {self._best_iou}\n"
+        else:
+            end_msg = "\n"
+            
+        self.stats_msg = start_msg + msg + end_msg
+
         if self.mode == "meta_train":
             train_logger.debug(self.stats_msg)
         else:
@@ -309,7 +324,7 @@ class TrainingStats:
             "total_val_loss": self.total_val_loss,
             "mean_iou_dict": self.mean_iou_dict
         })
-        self.log_model_stats_to_file()
+        #self.log_model_stats_to_file()
 
     def get_stats(self, mode):
         if mode == "meta_train":
@@ -347,5 +362,10 @@ class TrainingStats:
     def disp_stats(self):
         print(self.stats_msg)
 
+    def update_best_iou(self, iou):
+        if self.mode == "meta_val": 
+            if iou > self._best_episode:
+                self._best_iou = iou
+                self._best_episode = self.episode
 
 config = load_config()

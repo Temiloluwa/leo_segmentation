@@ -3,7 +3,7 @@ import collections
 import pandas as pd
 import numpy as np
 import random
-from utils import meta_classes_selector, print_to_string_io, \
+from leo_segmentation.utils import meta_classes_selector, print_to_string_io, \
     train_logger, val_logger, numpy_to_tensor, load_config
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, utils, datasets
@@ -272,14 +272,7 @@ class TrainingStats:
             train_logger.debug(self.stats_msg)
         else:
             val_logger.debug(self.stats_msg)
-        """
-        self._stats.append({
-            "mode": self.mode,
-            "episode": self.episode,
-            "total_val_loss": self.total_val_loss,
-            "mean_iou_dict": self.mean_iou_dict
-        })
-        """
+        
         self._stats.append({
             "mode": self.mode,
             "episode": self.episode,
