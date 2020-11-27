@@ -8,6 +8,7 @@ from torch.nn import CrossEntropyLoss
 from torchvision import models
 from torch.nn import functional as F
 # from .aspp import build_aspp
+
 from leo_segmentation.utils import display_data_shape, get_named_dict, calc_iou_per_class, \
     log_data, load_config, list_to_tensor, numpy_to_tensor, tensor_to_numpy
 
@@ -113,18 +114,34 @@ class DecoderBlock(nn.Module):
 
         self.squeeze_conv_latent = nn.Conv2d(in_channels=1280, out_channels=1, kernel_size=(1, 1), padding=(0, 0),
                                              stride=1)
-        self.squeeze_conv1_out = nn.Conv2d(in_channels=352, out_channels=1, kernel_size=(1, 1), padding=(0, 0),
-                                           stride=1)  # 32
-        self.squeeze_conv2_out = nn.Conv2d(in_channels=120, out_channels=1, kernel_size=(1, 1), padding=(0, 0),
-                                           stride=1)  # 24
-        self.squeeze_conv3_out = nn.Conv2d(in_channels=48, out_channels=1, kernel_size=(1, 1), padding=(0, 0),
-                                           stride=1)  # 16
-        self.squeeze_conv4_out = nn.Conv2d(in_channels=32, out_channels=1, kernel_size=(1, 1), padding=(0, 0),
-                                           stride=1)  # 8
-        self.squeeze_final_out = nn.Conv2d(in_channels=8, out_channels=1, kernel_size=(1, 1), padding=(0, 0), stride=1)
+        self.squeeze_conv1_out = nn.Conv2d(in_channels=skip_features[-1].shape[1] + hyp.base_num_covs*4 ,\
+                                                     out_channels=1, kernel_size=(1, 1), padding=(0, 0), stride=1) 
+        self.squeeze_conv2_out = nn.Conv2d(in_channels=skip_features[-2].shape[1] + hyp.base_num_covs*3 ,\
+                                                     out_channels=1, kernel_size=(1, 1), padding=(0, 0), stride=1)
+        self.squeeze_conv3_out = nn.Conv2d(in_channels=skip_features[-3].shape[1] + hyp.base_num_covs*2 ,\
+                                                     out_channels=1, kernel_size=(1, 1), padding=(0, 0), stride=1)
+        self.squeeze_conv4_out = nn.Conv2d(in_channels=skip_features[-4].shape[1] + hyp.base_num_covs ,\
+                                                     out_channels=1, kernel_size=(1, 1), padding=(0, 0), stride=1)
+        self.squeeze_final_out = nn.Conv2d(in_channels=hyp.base_num_covs, out_channels=1, kernel_size=(1, 1),\
+                                                         padding=(0, 0), stride=1)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, skip_features, latents, d_train=False, wd=None):
+        def prep_and_forward(i, o, wd):
+            if latents.shape[0] == 1:
+                skip_f = self.upsample(skip_features[-i]).clone().repeat(5, 1, 1, 1)
+                o = torch.cat([o, skip_f], dim=1)
+            else:
+                o = torch.cat([o, self.upsample(skip_features[-i])], dim=1)
+    
+            if d_train == True:
+                squeeze_conv_out = getattr(self, f"squeeze_conv{i}_out")
+                wd.append(self.sigmoid(squeeze_conv_out(o)))
+            elif len(wd) > 0:
+                o = torch.mul(o, wd[i])
+            return o, wd
+            
+
         wd = [] if wd is None else wd
         if d_train == True:
             wd.append(self.sigmoid(self.squeeze_conv_latent(latents)))
@@ -139,63 +156,22 @@ class DecoderBlock(nn.Module):
             o = self.conv1(latents_)
         else:
             o = self.conv1(latents)
-        if latents.shape[0] == 1:
-            skip_f = self.upsample(skip_features[-1]).clone().repeat(5, 1, 1, 1)
-            o = torch.cat([o, skip_f], dim=1)
-        else:
-            o = torch.cat([o, self.upsample(skip_features[-1])], dim=1)
-        if d_train == True:
-            # self.in_channels = o.shape[1]
-            wd.append(self.sigmoid(self.squeeze_conv1_out(o)))
-        elif len(wd) > 0:
-            o = torch.mul(o, wd[1])
+
+        o , wd = prep_and_forward(1, o, wd)
         o = self.conv2(o)
-        # print(o.shape)
-        if latents.shape[0] == 1:
-            skip_f = self.upsample(skip_features[-2]).clone().repeat(5, 1, 1, 1)
-            o = torch.cat([o, skip_f], dim=1)
-        else:
-            o = torch.cat([o, self.upsample(skip_features[-2])], dim=1)
-        if d_train == True:
-            # self.in_channels = o.shape[1]
-            wd.append(self.sigmoid(self.squeeze_conv2_out(o)))
-        elif len(wd) > 0:
-            o = torch.mul(o, wd[2])
+        o , wd = prep_and_forward(2, o, wd)
         o = self.conv3(o)
-        # print(o.shape)
-        if latents.shape[0] == 1:
-            skip_f = self.upsample(skip_features[-3]).clone().repeat(5, 1, 1, 1)
-            o = torch.cat([o, skip_f], dim=1)
-        else:
-            o = torch.cat([o, self.upsample(skip_features[-3])], dim=1)
-        if d_train == True:
-            # self.in_channels = o.shape[1]
-            wd.append(self.sigmoid(self.squeeze_conv3_out(o)))
-        elif len(wd) > 0:
-            o = torch.mul(o, wd[3])
+        o , wd = prep_and_forward(3, o, wd)
         o = self.conv4(o)
-        # print(o.shape)
-        if latents.shape[0] == 1:
-            skip_f = self.upsample(skip_features[-4]).clone().repeat(5, 1, 1, 1)
-            o = torch.cat([o, skip_f], dim=1)
-        else:
-            o = torch.cat([o, self.upsample(skip_features[-4])], dim=1)
-        if d_train == True:
-            # self.in_channels = o.shape[1]
-            wd.append(self.sigmoid(self.squeeze_conv4_out(o)))
-        elif len(wd) > 0:
-            o = torch.mul(o, wd[4])
+        o , wd = prep_and_forward(4, o, wd)
+
         o = self.up_final(o)
         if latents.shape[0] == 1:
             o = torch.mean(o, dim=0).unsqueeze(0)
-            #print(o.shape)
         if d_train == True:
-            # self.in_channels = o.shape[1]
             wd.append(self.sigmoid(self.squeeze_final_out(o)))
         elif len(wd) > 0:
             latents = torch.mul(o, wd[5])
-        # print(o.shape)
-        # print('---------------------------')
         if d_train == True:
             return o, wd
         return o
