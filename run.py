@@ -19,11 +19,14 @@ try:
 except NameError:
     parser = argparse.ArgumentParser(description='Specify dataset')
     parser.add_argument("-d", "--dataset", type=str, default="pascal_5i")
+    parser.add_argument("-f", "--fold", type=int, default=0)
     args = parser.parse_args()
     dataset = args.dataset
+    fold = args.fold
 
 config = load_config()
 update_config({'selected_data': dataset})
+update_config({'fold': fold})
 
 if config.selected_data == "pascal_5i":
     Datagenerator = PascalDatagenerator
