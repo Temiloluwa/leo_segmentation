@@ -25,7 +25,7 @@ class EncoderBlock(nn.Module):
         super(EncoderBlock, self).__init__()
         self.layers = nn.ModuleList(list(models.mobilenet_v2(pretrained=True)
                                          .features))
-        self.in_channels = 0
+        self.squeeze_conv_l1 = nn.Conv2d(in_channels=16, out_channels=1, kernel_size=(1, 1), padding=(0, 0), stride=1)
         self.squeeze_conv_l3 = nn.Conv2d(in_channels=24, out_channels=1, kernel_size=(1, 1), padding=(0, 0), stride=1)
         self.squeeze_conv_l6 = nn.Conv2d(in_channels=32, out_channels=1, kernel_size=(1, 1), padding=(0, 0), stride=1)
         self.squeeze_conv_l13 = nn.Conv2d(in_channels=96, out_channels=1, kernel_size=(1, 1), padding=(0, 0), stride=1)
@@ -35,8 +35,8 @@ class EncoderBlock(nn.Module):
     def forward(self, x, d_train=False, we=None):
         features = []
         cnt = 0
-        we = [] if we is None else we            
-        output_layers = [3, 6, 13, 17]  # 56, 28, 14, 7
+        we = [] if we is None else we
+        output_layers = [1, 3, 6, 13]  # 112, 56, 28, 14
         for i, layer in enumerate(self.layers):
             x = layer(x)
             if i in output_layers:
@@ -54,6 +54,26 @@ class EncoderBlock(nn.Module):
         if d_train == True:
             return features, latents, we
         return features, latents
+
+
+class AttentionNetwork(nn.Module):
+    def __init__(self, in_channels_skip, in_channels_pre_layer_out, out_channels):
+        super(AttentionNetwork, self).__init__()
+        self.skip_layer = nn.Sequential(nn.Conv2d(in_channels_skip, out_channels, kernel_size=1),
+                                        nn.BatchNorm2d(out_channels))
+        self.pre_layer = nn.Sequential(nn.Conv2d(in_channels_pre_layer_out, out_channels, kernel_size=1),
+                                       nn.BatchNorm2d(out_channels))
+        self.psi = nn.Sequential(nn.Conv2d(out_channels, 1, kernel_size=1),
+                                 nn.BatchNorm2d(1),
+                                 nn.Sigmoid())
+
+    def forward(self, skip, pre_layer_out):
+        skip1 = self.skip_layer(skip)
+        pre_layer1 = nn.functional.interpolate(self.pre_layer(pre_layer_out), skip1.shape[2:], mode='bilinear',
+                                               align_corners=False)
+        out = self.psi(nn.ReLU()(skip1 + pre_layer1))
+        out = nn.Sigmoid()(out)
+        return out * skip
 
 
 class RelationNetwork(nn.Module):
@@ -114,33 +134,43 @@ class DecoderBlock(nn.Module):
 
         self.squeeze_conv_latent = nn.Conv2d(in_channels=1280, out_channels=1, kernel_size=(1, 1), padding=(0, 0),
                                              stride=1)
-        self.squeeze_conv1_out = nn.Conv2d(in_channels=skip_features[-1].shape[1] + hyp.base_num_covs*4 ,\
-                                                     out_channels=1, kernel_size=(1, 1), padding=(0, 0), stride=1) 
-        self.squeeze_conv2_out = nn.Conv2d(in_channels=skip_features[-2].shape[1] + hyp.base_num_covs*3 ,\
-                                                     out_channels=1, kernel_size=(1, 1), padding=(0, 0), stride=1)
-        self.squeeze_conv3_out = nn.Conv2d(in_channels=skip_features[-3].shape[1] + hyp.base_num_covs*2 ,\
-                                                     out_channels=1, kernel_size=(1, 1), padding=(0, 0), stride=1)
-        self.squeeze_conv4_out = nn.Conv2d(in_channels=skip_features[-4].shape[1] + hyp.base_num_covs ,\
-                                                     out_channels=1, kernel_size=(1, 1), padding=(0, 0), stride=1)
-        self.squeeze_final_out = nn.Conv2d(in_channels=hyp.base_num_covs, out_channels=1, kernel_size=(1, 1),\
-                                                         padding=(0, 0), stride=1)
+        self.squeeze_conv1_out = nn.Conv2d(in_channels=skip_features[-1].shape[1] + hyp.base_num_covs * 4, \
+                                           out_channels=1, kernel_size=(1, 1), padding=(0, 0), stride=1)
+        self.squeeze_conv2_out = nn.Conv2d(in_channels=skip_features[-2].shape[1] + hyp.base_num_covs * 3, \
+                                           out_channels=1, kernel_size=(1, 1), padding=(0, 0), stride=1)
+        self.squeeze_conv3_out = nn.Conv2d(in_channels=skip_features[-3].shape[1] + hyp.base_num_covs * 2, \
+                                           out_channels=1, kernel_size=(1, 1), padding=(0, 0), stride=1)
+        self.squeeze_conv4_out = nn.Conv2d(in_channels=skip_features[-4].shape[1] + hyp.base_num_covs, \
+                                           out_channels=1, kernel_size=(1, 1), padding=(0, 0), stride=1)
+        self.squeeze_final_out = nn.Conv2d(in_channels=hyp.base_num_covs, out_channels=1, kernel_size=(1, 1), \
+                                           padding=(0, 0), stride=1)
+
+        self.attention1 = AttentionNetwork(skip_features[-1].shape[1], hyp.base_num_covs * 4,
+                                           int(skip_features[-1].shape[1] / 2))
+        self.attention2 = AttentionNetwork(skip_features[-2].shape[1], hyp.base_num_covs * 3,
+                                           int(skip_features[-2].shape[1] / 2))
+        self.attention3 = AttentionNetwork(skip_features[-3].shape[1], hyp.base_num_covs * 2,
+                                           int(skip_features[-1].shape[1] / 2))
+        self.attention4 = AttentionNetwork(skip_features[-4].shape[1], hyp.base_num_covs,
+                                           int(skip_features[-1].shape[1] / 2))
+
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, skip_features, latents, d_train=False, wd=None):
         def prep_and_forward(i, o, wd):
             if latents.shape[0] == 1:
-                skip_f = self.upsample(skip_features[-i]).clone().repeat(5, 1, 1, 1)
-                o = torch.cat([o, skip_f], dim=1)
+                skip_f = skip_features[-i].clone().repeat(5, 1, 1, 1)
             else:
-                o = torch.cat([o, self.upsample(skip_features[-i])], dim=1)
-    
+                skip_f = skip_features[-i]
+            attention = getattr(self, f"attention{i}")
+            x = nn.functional.interpolate(o, skip_f.shape[2:], mode='bilinear', align_corners=False)
+            o = torch.cat([attention(skip_f, o), x], dim=1)
             if d_train == True:
                 squeeze_conv_out = getattr(self, f"squeeze_conv{i}_out")
                 wd.append(self.sigmoid(squeeze_conv_out(o)))
             elif len(wd) > 0:
                 o = torch.mul(o, wd[i])
             return o, wd
-            
 
         wd = [] if wd is None else wd
         if d_train == True:
@@ -157,13 +187,13 @@ class DecoderBlock(nn.Module):
         else:
             o = self.conv1(latents)
 
-        o , wd = prep_and_forward(1, o, wd)
+        o, wd = prep_and_forward(1, o, wd)
         o = self.conv2(o)
-        o , wd = prep_and_forward(2, o, wd)
+        o, wd = prep_and_forward(2, o, wd)
         o = self.conv3(o)
-        o , wd = prep_and_forward(3, o, wd)
+        o, wd = prep_and_forward(3, o, wd)
         o = self.conv4(o)
-        o , wd = prep_and_forward(4, o, wd)
+        o, wd = prep_and_forward(4, o, wd)
 
         o = self.up_final(o)
         if latents.shape[0] == 1:
@@ -175,7 +205,7 @@ class DecoderBlock(nn.Module):
         if d_train == True:
             return o, wd
         return o
- 
+
 
 class LEO(nn.Module):
     """
@@ -191,7 +221,7 @@ class LEO(nn.Module):
         seg_network = nn.Conv2d(hyp.base_num_covs + 3, 2, kernel_size=3, stride=1, padding=1)
         self.seg_weight = seg_network.weight.detach().to(device)
         self.seg_weight.requires_grad = True
-        
+
         self.loss_fn = CrossEntropyLoss()
         self.optimizer_seg_network = torch.optim.Adam(
             [self.seg_weight], lr=hyp.outer_loop_lr)
@@ -200,19 +230,11 @@ class LEO(nn.Module):
         """ Freeze encoder weights """
         for param in self.encoder.parameters():
             param.requires_grad = False
-        # for param in self.RelationNetwork.parameters():
-        #    param.requires_grad = False
-        # for param in self.aspp.parameters():
-        #    param.requires_grad = False
 
     def unfreeze_encoder(self):
         """ UnFreeze encoder weights """
         for param in self.encoder.parameters():
             param.requires_grad = True
-        # for param in self.RelationNetwork.parameters():
-        #    param.requires_grad = True
-        # for param in self.aspp.parameters():
-        #    param.requires_grad = True
 
     def forward_encoder(self, x, mode, d_train=False, we=None):
         """ Performs forward pass through the encoder """
@@ -220,10 +242,7 @@ class LEO(nn.Module):
             skip_features, latents, we = self.encoder(x, d_train=d_train)
         else:
             skip_features, latents = self.encoder(x, we)
-        # aspp_latents = self.aspp(latents)
-        # relation_network_outputs, total_num_examples = self.relation_network(aspp_latents)
-        # print('relation_network_outputs', relation_network_outputs.shape)
-        # latent_dist_params = self.average_codes_per_class(relation_network_outputs, total_num_examples)
+
         if not latents.requires_grad:
             latents.requires_grad = True
         if d_train == True:
@@ -348,7 +367,7 @@ class LEO(nn.Module):
             tr_loss = self.loss_fn(pred, data_dict.tr_masks.long())
             seg_weight_grad = torch.autograd.grad(tr_loss, [weight], retain_graph=True, create_graph=False)[0]
             weight -= hyp.finetuning_lr * seg_weight_grad
-    
+
         if mode == "meta_train":
             _, _, prediction = self.forward(data_dict.val_imgs, weight=weight, we=we, wd=wd)
             val_loss = self.loss_fn(prediction, data_dict.val_masks.long())
@@ -419,7 +438,7 @@ def compute_loss(leo, metadata, train_stats, transformers, mode="meta_train"):
                     decoder_grads_.append(grad / num_tasks)
                 else:
                     decoder_grads_.append(0)
-            
+
             if total_grads is None:
                 total_grads = decoder_grads_
                 seg_weight_grad = seg_weight_grad / num_tasks
@@ -427,14 +446,14 @@ def compute_loss(leo, metadata, train_stats, transformers, mode="meta_train"):
                 total_grads = [total_grads[i] + decoder_grads_[i] \
                                for i in range(len(decoder_grads_))]
                 seg_weight_grad += seg_weight_grad / num_tasks
-            
+
             for i in range(len(total_grads)):
                 if type(total_grads[i]) is not int:
                     total_grads[i] = torch.clamp(total_grads[i], min=-hyp.max_grad_norm, max=hyp.max_grad_norm)
 
         mean_iou_dict[classes[batch]] = mean_iou
         total_val_loss.append(val_loss)
-    
+
     if mode == "meta_train":
         leo.optimizer_decoder.zero_grad()
         leo.optimizer_seg_network.zero_grad()
@@ -461,7 +480,6 @@ def compute_loss(leo, metadata, train_stats, transformers, mode="meta_train"):
 def save_model(model, optimizer, config, stats):
     """
     Save the model while training based on check point interval
-
     if episode number is not -1 then a prompt to delete checkpoints occur if
     checkpoints for that episode number exits.
     This only occurs if the prompt_deletion flag in the experiment dictionary
@@ -471,7 +489,6 @@ def save_model(model, optimizer, config, stats):
         optimizer - optimized weights
         config - global config
         stats - dictionary containing stats for the current episode
-
     Returns:
     """
     data_to_save = {
