@@ -7,6 +7,7 @@ from torch.distributions import Normal
 from torch.nn import CrossEntropyLoss
 from torchvision import models
 from torch.nn import functional as F
+from torch.optim.lr_scheduler import StepLR
 # from .aspp import build_aspp
 
 from leo_segmentation.utils import display_data_shape, get_named_dict, calc_iou_per_class, \
@@ -231,6 +232,7 @@ class LEO(nn.Module):
         self.loss_fn = CrossEntropyLoss()
         self.optimizer_seg_network = torch.optim.Adam(
             [self.seg_weight1, self.seg_weight2, self.seg_weight3], lr=hyp.outer_loop_lr)
+        self.opt_seg_network_scheduler = StepLR(self.optimizer_seg_network, step_size=hyp.schedule_interval, gamma=0.1)
 
     def freeze_encoder(self):
         """ Freeze encoder weights """
@@ -433,6 +435,7 @@ def compute_loss(leo, metadata, train_stats, transformers, mode="meta_train"):
         leo.decoder = DecoderBlock(skip_features, latents).to(device)
         leo.optimizer_decoder = torch.optim.Adam(
             leo.decoder.parameters(), lr=hyp.outer_loop_lr)
+        leo.opt_decoder_scheduler = StepLR(leo.optimizer_decoder, step_size=hyp.schedule_interval, gamma=0.1)
 
     if train_stats.episode % config.display_stats_interval == 1:
         display_data_shape(metadata)
@@ -491,6 +494,9 @@ def compute_loss(leo, metadata, train_stats, transformers, mode="meta_train"):
         leo.seg_weight3.grad = seg_weight_grad[2]
         leo.optimizer_decoder.step()
         leo.optimizer_seg_network.step()
+        leo.opt_decoder_scheduler.step()
+        leo.opt_seg_network_scheduler.step()
+        
     total_val_loss = float(sum(total_val_loss) / len(total_val_loss))
     stats_data = {
         "mode": mode,
