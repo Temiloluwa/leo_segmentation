@@ -497,7 +497,7 @@ class TrainingStats:
 
     def update_best_iou(self, iou):
         if self.mode == "meta_val": 
-            if iou > self._best_episode:
+            if iou > self._best_iou:
                 self._best_iou = iou
                 self._best_episode = self.episode
 
