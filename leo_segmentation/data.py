@@ -254,7 +254,7 @@ class PascalDatagenerator(Dataset):
         return self.__getitem__(0)
 
 
-class Datagenerator(Dataset):
+class GeneralDatagenerator(Dataset):
     """Sample task data for Meta-train, Meta-val and Meta-train tasks
 
     Args:
@@ -506,5 +506,3 @@ def rgb2gray(rgb):
     # https://stackoverflow.com/questions/12201577/how-can-i-convert-an-rgb-image-into-grayscale-in-python
     return np.dot(rgb[..., :3], [0.2989, 0.5870, 0.1140])
 
-if config.selected_data == "pascal_5i":
-    Datagenerator = PascalDatagenerator 

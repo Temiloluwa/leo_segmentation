@@ -11,6 +11,7 @@ import torchvision
 import logging
 import logging.config
 import numpy as np
+import re
 from PIL import Image
 from matplotlib import pyplot as plt
 from easydict import EasyDict as edict
@@ -31,8 +32,14 @@ def update_config(data):
     for k, v in data.items():
         config[k] = v 
     config_path = os.path.join(project_root, "config.json")
+    config = print_to_string_io(config, for_config=True)
+    config = re.sub(r"\'", '"', config)
+    config = re.sub(r"True", 'true', config)
+    config = re.sub(r"False", 'false', config)
     with open(config_path, "w",  encoding="utf-8") as f:
-        json.dump(config, f, indent=4)
+        #json.dump(config, f, indent=4)
+        f.write(config)
+        
 
 
 def meta_classes_selector(config, dataset, shuffle_classes=False):
@@ -45,7 +52,7 @@ def meta_classes_selector(config, dataset, shuffle_classes=False):
         Returns:
             meta_classes_splits (dict): classes all data types
     """
-
+    
     classes = os.listdir(os.path.join(os.path.dirname(__file__),
                                  "data", f"{dataset}", "images"))
     classes = sorted(classes)
@@ -258,11 +265,13 @@ def plot_masks(mask_data, ground_truth=False):
         plt.imshow(np.mean(mask_data.numpy()) / 2 + 0.5, cmap="gray")
 
 
-def print_to_string_io(variable_to_print, pretty_print=True, logger=None):
+def print_to_string_io(variable_to_print, pretty_print=True, logger=None, for_config=False):
     """ Prints value to string_io and returns value"""
     previous_stdout = sys.stdout
     sys.stdout = string_buffer = StringIO()
-    pp = pprint.PrettyPrinter(indent=0)
+    indent = 4 if for_config else 0
+    sort_dict = False if for_config else True
+    pp = pprint.PrettyPrinter(indent=indent)
     if pretty_print:
         pp.pprint(variable_to_print)
     else:

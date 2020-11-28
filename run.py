@@ -6,14 +6,11 @@ import torch
 import torch.optim
 import numpy as np
 from easydict import EasyDict as edict
-from leo_segmentation.data import Datagenerator, TrainingStats
+from leo_segmentation.data import PascalDatagenerator, GeneralDatagenerator, TrainingStats
 from leo_segmentation.model import LEO, load_model, save_model, compute_loss
 from leo_segmentation.utils import load_config, check_experiment, \
     get_named_dict, log_data, load_yaml, train_logger, val_logger, \
-    print_to_string_io, save_pickled_data, model_dir
-
-config = load_config()
-#update_config({'selected_data': dataset})
+    print_to_string_io, save_pickled_data, model_dir, update_config
 
 try:
     shell = get_ipython().__class__.__name__
@@ -21,10 +18,17 @@ try:
         raise NameError("Move to except branch")
 except NameError:
     parser = argparse.ArgumentParser(description='Specify dataset')
-    parser.add_argument("-d", "--dataset", type=str, default="fss1000")
+    parser.add_argument("-d", "--dataset", type=str, default="pascal_5i")
     args = parser.parse_args()
     dataset = args.dataset
 
+config = load_config()
+update_config({'selected_data': dataset})
+
+if config.selected_data == "pascal_5i":
+    Datagenerator = PascalDatagenerator
+else:
+    Datagenerator = GeneralDatagenerator 
 
 def load_model_and_params(device):
     """Loads model and accompanying saved parameters"""
@@ -103,7 +107,7 @@ def predict_model(dataset, model_and_params, transformers):
     config = load_config()
     leo, _, train_stats = model_and_params
     data_type = "meta_test"
-    if data_type == "pascal_5i":
+    if dataset == "pascal_5i":
         data_type = "meta_val"
 
     dataloader = Datagenerator(dataset, data_type=data_type)
