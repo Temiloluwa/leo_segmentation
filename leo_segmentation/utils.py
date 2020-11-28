@@ -29,8 +29,15 @@ def load_config(config_path: str = "config.json"):
 def update_config(data):
     """ Updates config file """
     config = load_config()
-    for k, v in data.items():
-        config[k] = v 
+    data_key = list(data.keys())[0]
+    if data_key in config:
+        config[data_key] = data[data_key]
+    else:
+        for k, v in config.items():
+            if type(v) not in [int, bool]:
+                if data_key in v:
+                    v[data_key] = data[data_key]
+
     config_path = os.path.join(project_root, "config.json")
     config = print_to_string_io(config, for_config=True)
     config = re.sub(r"\'", '"', config)
@@ -52,7 +59,7 @@ def meta_classes_selector(config, dataset, shuffle_classes=False):
         Returns:
             meta_classes_splits (dict): classes all data types
     """
-    
+
     classes = os.listdir(os.path.join(os.path.dirname(__file__),
                                  "data", f"{dataset}", "images"))
     classes = sorted(classes)
@@ -65,10 +72,28 @@ def meta_classes_selector(config, dataset, shuffle_classes=False):
         return class_split
 
     splits = config.data_params.meta_class_splits
-
+    
     meta_classes_splits = {"meta_train": extract_splits(classes, splits.meta_train),
                             "meta_val": extract_splits(classes, splits.meta_val),
                             "meta_test": extract_splits(classes, splits.meta_test)}
+    
+    if config.selected_data == "fss1000":
+        with open(os.path.join(os.path.dirname(__file__),
+                                 "data", f"{dataset}", "fss_test_set.txt")) as f:
+            val_test_classes = f.readlines()
+            val_test_classes = [i.strip("\n") for i in val_test_classes]
+            
+        val_test_classes = list(set(classes).intersection(set(val_test_classes)))
+        train_classes = list(set(classes) - set(val_test_classes))
+
+        meta_classes_splits = {"meta_train": train_classes,
+                            "meta_val": val_test_classes,
+                            "meta_test": val_test_classes}
+        #data = {"num_tasks": {"meta_test": len(train_classes), 
+        #                    "meta_train": len(val_test_classes), 
+        #                    "meta_val": len(val_test_classes)}}
+        #update_config(data)
+
 
     total_count = len(set(meta_classes_splits["meta_train"] +
                         meta_classes_splits["meta_val"] +
