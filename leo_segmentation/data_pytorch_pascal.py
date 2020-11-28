@@ -311,7 +311,6 @@ class TrainingStats:
               + f" | Best IOU: {self._best_iou}\n"
         else:
             end_msg = "\n"
-            
         self.stats_msg = start_msg + msg + end_msg
 
         if self.mode == "meta_train":
@@ -364,7 +363,7 @@ class TrainingStats:
 
     def update_best_iou(self, iou):
         if self.mode == "meta_val": 
-            if iou > self._best_iou:
+            if iou > self._best_episode:
                 self._best_iou = iou
                 self._best_episode = self.episode
 

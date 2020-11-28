@@ -6,11 +6,14 @@ import torch
 import torch.optim
 import numpy as np
 from easydict import EasyDict as edict
-from leo_segmentation.data_pytorch_pascal import Datagenerator, TrainingStats
+from leo_segmentation.data import Datagenerator, TrainingStats
 from leo_segmentation.model import LEO, load_model, save_model, compute_loss
 from leo_segmentation.utils import load_config, check_experiment, \
     get_named_dict, log_data, load_yaml, train_logger, val_logger, \
     print_to_string_io, save_pickled_data, model_dir
+
+config = load_config()
+#update_config({'selected_data': dataset})
 
 try:
     shell = get_ipython().__class__.__name__
@@ -18,7 +21,7 @@ try:
         raise NameError("Move to except branch")
 except NameError:
     parser = argparse.ArgumentParser(description='Specify dataset')
-    parser.add_argument("-d", "--dataset", type=str, default="pascal_5i")
+    parser.add_argument("-d", "--dataset", type=str, default="fss1000")
     args = parser.parse_args()
     dataset = args.dataset
 
@@ -99,14 +102,18 @@ def predict_model(dataset, model_and_params, transformers):
     """Implement Predicion on Meta-Test"""
     config = load_config()
     leo, _, train_stats = model_and_params
-    dataloader = Datagenerator(dataset, data_type="meta_val")
+    data_type = "meta_test"
+    if data_type == "pascal_5i":
+        data_type = "meta_val"
+
+    dataloader = Datagenerator(dataset, data_type=data_type)
     train_stats.set_mode("meta_test")
     metadata = dataloader.get_batch_data()
     _, train_stats = compute_loss(leo, metadata, train_stats, transformers,
-                                  mode="meta_val")
+                                  mode=data_type)
     train_stats.disp_stats()
     experiment = config.experiment
-    for mode in ["meta_train", "meta_val", "meta_val"]:
+    for mode in ["meta_train", "meta_val", "meta_test"]:
         stats_df = train_stats.get_stats(mode)
         ious_df = train_stats.get_ious(mode)
         stats_df.to_pickle(os.path.join(model_dir,
@@ -137,5 +144,4 @@ def main():
 
 
 if __name__ == "__main__":
-    config = load_config()
     main()

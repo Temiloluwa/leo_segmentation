@@ -25,22 +25,14 @@ def load_config(config_path: str = "config.json"):
     return edict(config)
 
 
-def one_hot_target(mask, channel_dim=1):
-    mask_inv = (~mask.type(torch.bool)).type(torch.float32)
-    channel_zero = torch.unsqueeze(mask_inv, channel_dim)
-    channel_one = torch.unsqueeze(mask, channel_dim)
-    return torch.cat((channel_zero, channel_one), axis=channel_dim)
-
-
-def softmax(py_tensor, channel_dim=1):
-    py_tensor = torch.exp(py_tensor)
-    return py_tensor / torch.unsqueeze(torch.sum(py_tensor, dim=channel_dim), channel_dim)
-
-
-def sparse_crossentropy(target, pred, channel_dim=1, eps=1e-10):
-    pred += eps
-    loss = torch.sum(-1 * target * torch.log(pred), dim=channel_dim)
-    return torch.mean(loss)
+def update_config(data):
+    """ Updates config file """
+    config = load_config()
+    for k, v in data.items():
+        config[k] = v 
+    config_path = os.path.join(project_root, "config.json")
+    with open(config_path, "w",  encoding="utf-8") as f:
+        json.dump(config, f, indent=4)
 
 
 def meta_classes_selector(config, dataset, shuffle_classes=False):
@@ -54,38 +46,28 @@ def meta_classes_selector(config, dataset, shuffle_classes=False):
             meta_classes_splits (dict): classes all data types
     """
 
+    classes = os.listdir(os.path.join(os.path.dirname(__file__),
+                                 "data", f"{dataset}", "images"))
+    classes = sorted(classes)
+                                 
     def extract_splits(classes, meta_split):
         """ Returns class splits for a meta train, val or test """
         class_split = []
-        for i in range(len(meta_split) // 2):
-            class_split.extend(classes[meta_split[i * 2]:meta_split[i * 2 + 1]])
+        for i in range(len(meta_split)//2):
+            class_split.extend(classes[meta_split[i*2]:meta_split[i*2+1]])
         return class_split
 
     splits = config.data_params.meta_class_splits
-    if dataset in config.datasets:
-        data_path = os.path.join(os.path.dirname(__file__), config.data_path,
-                                 f"{dataset}", "meta_classes.pkl")
-        if os.path.exists(data_path):
-            meta_classes_splits = load_pickled_data(data_path)
-        else:
-            classes = os.listdir(os.path.join(os.path.dirname(__file__),
-                                              "data", f"{dataset}", "images"))
-            if shuffle_classes:
-                random.shuffle(classes)
 
-            meta_classes_splits = {"meta_train": extract_splits(classes, splits.meta_train),
-                                   "meta_val": extract_splits(classes, splits.meta_val),
-                                   "meta_test": extract_splits(classes, splits.meta_test)}
+    meta_classes_splits = {"meta_train": extract_splits(classes, splits.meta_train),
+                            "meta_val": extract_splits(classes, splits.meta_val),
+                            "meta_test": extract_splits(classes, splits.meta_test)}
 
-            total_count = len(set(meta_classes_splits["meta_train"] +
-                                  meta_classes_splits["meta_val"] +
-                                  meta_classes_splits["meta_test"]))
-            assert total_count == len(classes), "check ratios supplied"
-            if os.path.exists(data_path):
-                os.remove(data_path)
-                save_pickled_data(meta_classes_splits, data_path)
-            else:
-                save_pickled_data(meta_classes_splits, data_path)
+    total_count = len(set(meta_classes_splits["meta_train"] +
+                        meta_classes_splits["meta_val"] +
+                        meta_classes_splits["meta_test"]))
+    assert total_count == len(classes), "check ratios supplied"
+    
     return edict(meta_classes_splits)
 
 

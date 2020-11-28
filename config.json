@@ -7,11 +7,12 @@
     "dtype":"float32",
     "data_path":"data",
     "datasets":["pascal_5i_fold_0", "pascal_5i_fold_1", "pascal_5i_fold_2", "pascal_5i_fold_3", "fss1000"],
+    "selected_data": "fss1000",
 	"data_params":{
         "num_classes":1,
-        "fold":2,
+        "fold":0,
         "img_dims":{"channels":3, "height":224, "width": 224},
-        "meta_class_splits":{"meta_train":[5, 20], "meta_val":[0, 5], "meta_test":[0, 5]},
+        "meta_class_splits":{"meta_train":[0, 600], "meta_val":[600, 800], "meta_test":[800, 1000]},
         "n_train_per_class":{"meta_train":5, "meta_val":5, "meta_test":5},
         "n_val_per_class":{"meta_train":5, "meta_val":"rest", "meta_test":"rest"},
         "num_tasks":{"meta_train":5, "meta_val":5, "meta_test":5}
@@ -27,6 +28,6 @@
         "kl_weight":0.5,
         "num_finetuning_steps":10,
         "num_adaptation_steps":5,
-        "episodes":3000
+        "episodes":10
     }
 }
