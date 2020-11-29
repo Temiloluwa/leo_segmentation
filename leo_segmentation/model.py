@@ -371,7 +371,7 @@ class LEO(nn.Module):
             tr_loss = self.loss_fn(pred, data_dict.tr_masks.long())
             seg_weight_grad = torch.autograd.grad(tr_loss, [weight1],\
                                      retain_graph=True, create_graph=False)
-            weight1 = self.seg_weight1 - hyp.finetuning_lr * seg_weight_grad[0]
+            weight1 = weight1 - hyp.finetuning_lr * seg_weight_grad[0]
 
         if mode == "meta_train":
             _, _, prediction = self.forward(data_dict.val_imgs, weight=[weight1], we=we, wd=wd)
