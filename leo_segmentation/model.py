@@ -357,7 +357,7 @@ class LEO(nn.Module):
                                               create_graph=False, allow_unused=True)
             seg_weight_grad, decoder_grads = grad_output[0], grad_output[1:]
             mean_iou = calc_iou_per_class(prediction, data_dict.val_masks)
-            return val_loss, seg_weight_grad, decoder_grads, mean_iou, weight, prediction
+            return val_loss, seg_weight_grad, decoder_grads, mean_iou, weight
         else:
             with torch.no_grad():
                 mean_ious = []
@@ -376,14 +376,16 @@ class LEO(nn.Module):
                         val_losses.append(val_loss)
                     mean_iou = np.mean(mean_ious)
                     val_loss = np.mean(val_losses)
-                    return val_loss, None, None, mean_iou, weight, prediction
+                    return val_loss, None, None, mean_iou, weight
                 else:
                     prediction = []
                     for i in range(len(data_dict.val_imgs)):
                         input_img = torch.unsqueeze(data_dict.val_imgs[i], 0)
-                        _, _, pred = self.forward(data_dict.val_imgs, weight=weight, we=we, wd=wd)
+                        _, _, pred = self.forward(input_img, weight=weight, we=we, wd=wd)
                         prediction.append(pred)
-                    prediction  = torch.stack(prediction)
+                    prediction = torch.stack(prediction)
+                    prediction = tensor_to_numpy(torch.squeeze(prediction, 1))
+                    prediction = np.argmax(prediction, axis=1)
                     return prediction
 
 
@@ -420,7 +422,7 @@ def compute_loss(leo, metadata, train_stats, transformers, mode="meta_train"):
     for batch in range(num_tasks):
         data_dict = get_named_dict(metadata, batch)
         seg_weight_grad, features, we, wd = leo.leo_inner_loop(data_dict.tr_imgs, data_dict.tr_masks)
-        val_loss, seg_weight_grad, decoder_grads, mean_iou, _, _ = \
+        val_loss, seg_weight_grad, decoder_grads, mean_iou, _ = \
             leo.finetuning_inner_loop(data_dict, features, seg_weight_grad,
                                       transformers, mode, we=we, wd=wd)
         if mode == "meta_train":

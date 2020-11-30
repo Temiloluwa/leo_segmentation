@@ -204,11 +204,10 @@ def evaluate_model(dataset,
                         'val_masks': None})
     
     leo, _ = load_model_and_params(dataset, data_type="meta_val")
-    seg_weight_grad, features, we, wd = \
-                leo.leo_inner_loop(data_dict.tr_imgs, data_dict.tr_masks)
-    _, _, _, _, _, prediction = \
-            leo.finetuning_inner_loop(data_dict, features, seg_weight_grad,
+    seg_weight_grad, features, we, wd = leo.leo_inner_loop(data_dict.tr_imgs, data_dict.tr_masks)
+    prediction = leo.finetuning_inner_loop(data_dict, features, seg_weight_grad,
                                       transformers, mode="meta_val", we=we, wd=wd)
+    
     return prediction, leo, transformers
 
 def main():

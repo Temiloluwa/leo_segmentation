@@ -19,7 +19,7 @@
     "display_stats_interval": 1,
     "dtype": "float32",
     "experiment": {   "description": "fsss 1000  le-3",
-                      "episode": 740,
+                      "episode": 744,
                       "number": 46},
     "hyperparameters": {   "base_num_covs": 8,
                            "dropout_rate": 0.2,
@@ -34,5 +34,5 @@
                            "schedule_interval": 1000},
     "meta_val_interval": 5,
     "selected_data": "pascal_5i",
-    "train": true,
+    "train": false,
     "use_gpu": true}
