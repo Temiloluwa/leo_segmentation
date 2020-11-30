@@ -10,6 +10,7 @@ from torch.nn import functional as F
 
 from leo_segmentation.utils import display_data_shape, get_named_dict, calc_iou_per_class, \
     log_data, load_config, list_to_tensor, numpy_to_tensor, tensor_to_numpy
+from leo_segmentation.data import PascalDatagenerator, GeneralDatagenerator, TrainingStats
 
 config = load_config()
 hyp = config.hyperparameters
@@ -198,8 +199,8 @@ class LEO(nn.Module):
         self.encoder = EncoderBlock()
         # self.aspp = build_aspp('mobilenet', 16, nn.BatchNorm2d)
         # self.RelationNetwork = RelationNetwork(512, 256)
-        seg_network = nn.Conv2d(hyp.base_num_covs + 3, 2, kernel_size=3, stride=1, padding=1)
-        self.seg_weight = seg_network.weight.detach().to(device)
+        self.seg_network = nn.Conv2d(hyp.base_num_covs + 3, 2, kernel_size=3, stride=1, padding=1)
+        self.seg_weight = self.seg_network.weight.detach().to(device)
         self.seg_weight.requires_grad = True
 
         self.loss_fn = CrossEntropyLoss()
@@ -457,7 +458,7 @@ def compute_loss(leo, metadata, train_stats, transformers, mode="meta_train"):
     return total_val_loss, train_stats
 
 
-def save_model(model, optimizer, config, stats):
+def save_model(model, config, train_stats):
     """
     Save the model while training based on check point interval
     if episode number is not -1 then a prompt to delete checkpoints occur if
@@ -471,25 +472,24 @@ def save_model(model, optimizer, config, stats):
         stats - dictionary containing stats for the current episode
     Returns:
     """
-    data_to_save = {
-        'mode': stats.mode,
-        'episode': stats.episode,
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'total_val_loss': stats.total_val_loss,
-        'mean_iou_dict': stats.mean_iou_dict,
+    with torch.no_grad():
+        model.seg_network.weight.copy_(model.seg_weight.data.detach())
 
+    data_to_save = {
+        'model_dict': model.state_dict(),
+        'optimizer_decoder_dict': model.optimizer_decoder.state_dict(),
+        'optimizer_seg_network_dict': model.optimizer_seg_network.state_dict(),
+        'train_stats': train_stats,
     }
 
     experiment = config.experiment
     model_root = os.path.join(os.path.dirname(__file__), config.data_path, "models")
     model_dir = os.path.join(model_root, "experiment_{}" \
                              .format(experiment.number))
-    if not os.path.exists(os.path.join(model_dir, "config.txt")):
-        torch.save(config, os.path.join(model_dir, "config.txt"))
-    checkpoint_path = os.path.join(model_dir, f"checkpoint_{stats.episode}.pth.tar")
+    checkpoint_path = os.path.join(model_dir, f"checkpoint_{train_stats.episode}.pt")
     if not os.path.exists(checkpoint_path):
         torch.save(data_to_save, checkpoint_path)
+    """""
     else:
         trials = 0
         while trials < 3:
@@ -518,9 +518,10 @@ def save_model(model, optimizer, config, stats):
                 print(f"You have {3 - trials} left")
                 if trials == 3:
                     raise ValueError("Supply the correct answer to the question")
+    """""
 
 
-def load_model():
+def load_model(device, data_dict):
     """
     Loads the model
     Args:
@@ -538,35 +539,39 @@ def load_model():
         stats: stats for the last saved model
     """
     experiment = config.experiment
-    model_dir = os.path.join(os.path.dirname(__file__), config.data_path, "models", "experiment_{}" \
+    model_root = os.path.join(os.path.dirname(__file__), config.data_path, "models")
+    model_dir = os.path.join(model_root, "experiment_{}" \
                              .format(experiment.number))
-
     checkpoints = os.listdir(model_dir)
-    checkpoints = [i for i in checkpoints if os.path.splitext(i)[-1] == ".tar"]
+    checkpoints = [i for i in checkpoints if os.path.splitext(i)[-1] == ".pt"]
     max_cp = max([int(cp.split(".")[0].split("_")[1]) for cp in checkpoints])
+    checkpoint_path = os.path.join(model_dir, f"checkpoint_{max_cp}.pt")
+
+    """""
+    
     # if experiment.episode == -1, load latest checkpoint
     episode = max_cp if experiment.episode == -1 else experiment.episode
     checkpoint_path = os.path.join(model_dir, f"checkpoint_{episode}.pth.tar")
-    checkpoint = torch.load(checkpoint_path)
+    
 
     log_filename = os.path.join(model_dir, "model_log.txt")
     msg = f"\n*********** checkpoint {episode} was loaded **************"
     log_data(msg, log_filename)
+    """""
+    checkpoint = torch.load(checkpoint_path)
+    leo = LEO().to(device)
+    skip_features, latents = leo.forward_encoder(data_dict.tr_imgs, mode="meta_train")
+    leo.decoder = DecoderBlock(skip_features, latents).to(device)
+    leo.optimizer_decoder = torch.optim.Adam(
+                    leo.decoder.parameters(), lr=hyp.outer_loop_lr)
 
-    leo = LEO(config).to(device)
-    optimizer = torch.optim.Adam(leo.parameters(), lr=config.hyperparameters.outer_loop_lr)
-    leo.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    mode = checkpoint['mode']
-    total_val_loss = checkpoint['total_val_loss']
-    # kl_loss = checkpoint['kl_loss']
-    mean_iou_dict = checkpoint['mean_iou_dict']
+   
+    leo.optimizer_decoder.load_state_dict(checkpoint['optimizer_decoder_dict'])
+    leo.optimizer_seg_network.load_state_dict(checkpoint['optimizer_seg_network_dict'])
+    leo.load_state_dict(checkpoint['model_dict'])
+    train_stats = checkpoint['train_stats']
+    leo.seg_weight = leo.seg_network.weight.detach().to(device)
+    leo.seg_weight.requires_grad = True
 
-    stats = {
-        "mode": mode,
-        "episode": episode,
-        "total_val_loss": total_val_loss,
-        "mean_iou_dict": mean_iou_dict
-    }
+    return leo, train_stats
 
-    return leo, optimizer, stats

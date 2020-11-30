@@ -33,19 +33,6 @@ if config.selected_data == "pascal_5i":
 else:
     Datagenerator = GeneralDatagenerator 
 
-def load_model_and_params(device):
-    """Loads model and accompanying saved parameters"""
-    leo, optimizer, stats = load_model()
-    episodes_completed = stats["episode"]
-    leo.eval()
-    leo = leo.to(device)
-    train_stats = TrainingStats()
-    train_stats.set_episode(episodes_completed)
-    train_stats.set_mode(stats["mode"])
-    train_stats.update_stats(**stats)
-    return leo, optimizer, train_stats, episodes_completed
-
-
 def train_model(config, dataset):
     """Trains Model"""
     # writer = SummaryWriter(os.path.join(config.data_path, "models",
@@ -54,13 +41,16 @@ def train_model(config, dataset):
                                       and config.use_gpu else "cpu")
     if check_experiment(config):
         # Load saved model and parameters
-        leo, optimizer, train_stats, episodes_completed = load_model_and_params(device)
+        dataloader = Datagenerator(dataset, data_type="meta_train")
+        metadata = dataloader.get_batch_data()
+        data_dict = get_named_dict(metadata, 0)
+        leo, train_stats = load_model(device, data_dict)
+        episodes_completed = train_stats.episode
     else:
         # Train a fresh model
         leo = LEO().to(device)
         train_stats = TrainingStats()
         episodes_completed = 0
-        optimizer = torch.optim.Adam(leo.parameters(), lr=config.hyperparameters.outer_loop_lr)
 
     leo.freeze_encoder()
     episodes = config.hyperparameters.episodes
@@ -78,8 +68,7 @@ def train_model(config, dataset):
         transformers = (dataloader.transform_image, dataloader.transform_mask)
         _, train_stats = compute_loss(leo, metadata, train_stats, transformers)
         if episode % config.checkpoint_interval == 0:
-            save_model(leo, optimizer, config,
-                       edict(train_stats.get_latest_stats()))
+            save_model(leo, config, train_stats)
         
         # meta-val stage
         if episode % config.meta_val_interval == 0:

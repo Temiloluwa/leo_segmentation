@@ -209,12 +209,19 @@ def check_experiment(config):
     checkpoint_paths = os.path.join(model_root,
                                     f"experiment_{experiment.number}")
     existing_checkpoints = os.listdir(checkpoint_paths)
+    existing_checkpoints = list(set(existing_checkpoints) - set(['train_log.txt', 'val_log.txt']))
     if f"experiment_{experiment.number}" in existing_models and \
-            f"checkpoint_{experiment.episode}.pth.tar" in existing_checkpoints:
+            f"checkpoint_{experiment.episode}.pt" in existing_checkpoints:
         return True
     elif f"experiment_{experiment.number}" in existing_models and \
             experiment.episode == -1:
         return True
+    elif f"experiment_{experiment.number}" in existing_models and \
+            existing_checkpoints:
+        return True
+    elif f"experiment_{experiment.number}" in existing_models and \
+            not existing_checkpoints:
+        return False
     else:
         create_log(config)
         return False
