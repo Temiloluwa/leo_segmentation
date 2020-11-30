@@ -396,6 +396,10 @@ class TrainingStats:
         self._best_episode = 0
         self._best_iou = 0
 
+    @property
+    def best_episode(self):
+        return self._best_episode
+
     def set_episode(self, episode):
         self.episode = episode
 
@@ -404,6 +408,13 @@ class TrainingStats:
 
     def set_batch(self, batch):
         self.batch = batch
+
+    def update_after_restart(self):
+        msg = f"======= Restarted at Episode {self.episode} ====== \n"
+        train_logger.debug(msg)
+        val_logger.debug(msg)
+        print(msg)
+
 
     def update_stats(self, **kwargs):
         self.total_val_loss = kwargs["total_val_loss"]

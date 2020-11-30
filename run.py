@@ -10,7 +10,10 @@ from leo_segmentation.data import PascalDatagenerator, GeneralDatagenerator, Tra
 from leo_segmentation.model import LEO, load_model, save_model, compute_loss
 from leo_segmentation.utils import load_config, check_experiment, \
     get_named_dict, log_data, load_yaml, train_logger, val_logger, \
-    print_to_string_io, save_pickled_data, model_dir, update_config
+    print_to_string_io, save_pickled_data, model_dir, update_config,\
+    list_to_tensor, numpy_to_tensor
+
+config = load_config()
 
 try:
     shell = get_ipython().__class__.__name__
@@ -23,28 +26,49 @@ except NameError:
     args = parser.parse_args()
     dataset = args.dataset
     fold = args.fold
+    
 
-config = load_config()
-update_config({'selected_data': dataset})
-update_config({'fold': fold})
-
-if config.selected_data == "pascal_5i":
-    Datagenerator = PascalDatagenerator
-else:
-    Datagenerator = GeneralDatagenerator 
-
-def train_model(config, dataset):
-    """Trains Model"""
-    # writer = SummaryWriter(os.path.join(config.data_path, "models",
-    # str(config.experiment.number)))
+def load_model_and_params(dataset, data_type):
+    """ Loads saved model """
     device = torch.device("cuda:0" if torch.cuda.is_available()
                                       and config.use_gpu else "cpu")
+    Datagenerator = PascalDatagenerator if dataset == "pascal_5i" \
+            else GeneralDatagenerator
+
+    dataloader = Datagenerator(dataset, data_type)
+    metadata = dataloader.get_batch_data()
+    data_dict = get_named_dict(metadata, 0)
+    leo, train_stats = load_model(device, data_dict)
+    return leo, train_stats
+
+def train_model(config, dataset, fold=None):
+    """Trains Model
+
+    Args:
+        config (dict): Config dictionary
+        dataset (str): Training dataset
+        fold (int): Supplied if Pascal 5i data is to be trained
+
+    Raises:
+        ValueError: If no Pascal 5i data fold is supplied
+
+    Returns:
+        leo (object): Leo Model
+    """
+    Datagenerator = PascalDatagenerator if dataset == "pascal_5i" \
+            else GeneralDatagenerator
+    device = torch.device("cuda:0" if torch.cuda.is_available()
+                                      and config.use_gpu else "cpu")
+    
+    if dataset == "pascal_5i" and fold is None:
+        raise ValueError("Supply fold to train the model")
+    
+    update_config({'selected_data': dataset})
+    update_config({'fold': fold})
+
     if check_experiment(config):
         # Load saved model and parameters
-        dataloader = Datagenerator(dataset, data_type="meta_train")
-        metadata = dataloader.get_batch_data()
-        data_dict = get_named_dict(metadata, 0)
-        leo, train_stats = load_model(device, data_dict)
+        leo, train_stats = load_model_and_params(dataset, data_type="meta_train")
         episodes_completed = train_stats.episode
     else:
         # Train a fresh model
@@ -67,8 +91,6 @@ def train_model(config, dataset):
         metadata = dataloader.get_batch_data()
         transformers = (dataloader.transform_image, dataloader.transform_mask)
         _, train_stats = compute_loss(leo, metadata, train_stats, transformers)
-        if episode % config.checkpoint_interval == 0:
-            save_model(leo, config, train_stats)
         
         # meta-val stage
         if episode % config.meta_val_interval == 0:
@@ -79,6 +101,10 @@ def train_model(config, dataset):
             _, train_stats = compute_loss(leo, metadata, train_stats,
                                           transformers, mode="meta_val")
         
+        if episode >= config.checkpoint_start and \
+            train_stats.best_episode  == episode:
+            save_model(leo, config, train_stats)
+        
         if episode % config.display_stats_interval == 0:
             train_stats.disp_stats()
         episode_time = (time.time() - start_time) / 60
@@ -86,7 +112,7 @@ def train_model(config, dataset):
         print_to_string_io(log_msg, False, train_logger)
         episode_times.append(episode_time)
 
-    model_and_params = leo, None, train_stats
+    model_and_params = leo, train_stats
     leo = predict_model(dataset, model_and_params, transformers)
     log_msg = f"Total Model Training Time {np.sum(episode_times):0.03f} minutes"
     print_to_string_io(log_msg, False, train_logger)
@@ -95,7 +121,19 @@ def train_model(config, dataset):
 
 
 def predict_model(dataset, model_and_params, transformers):
-    """Implement Predicion on Meta-Test"""
+    """Create Predictions for Metatest
+
+    Args:
+        dataset (str): Name of training dataset
+        model_and_params (tuple): tuple of leo model and train_stats
+        transformers (tuple): tuple of image and mask data transformers
+
+    Returns:
+        leo (object): model object
+    """
+    Datagenerator = PascalDatagenerator if dataset == "pascal_5i" \
+            else GeneralDatagenerator
+
     config = load_config()
     leo, _, train_stats = model_and_params
     data_type = "meta_test"
@@ -122,22 +160,60 @@ def predict_model(dataset, model_and_params, transformers):
     log_data(msg, os.path.join(model_dir, "train_log.txt"))
     return leo
 
+def evaluate_model(dataset, 
+                    support_imgs_or_paths,
+                    support_masks_or_paths,
+                    query_imgs_or_paths,
+                    dataloader):
+    """Evaluate model
+
+    Args:
+        dataset (str): Dataset used to train the model
+        support_imgs_or_paths (tensor/list): tensor/List of support images or imgs
+        query_imgs_or_paths (tensor/list): tensor/List of paths to query images 
+        support_masks_or_paths (tensor/list): tensor/List of paths to support masks
+        dataloader(object): dataloader
+
+    Returns:
+        prediction (tensor): predicted mask
+        leo (object): model
+        transformers (tuple): tuple of image transformers
+    """
+    if config.train:
+        raise ValueError("Set config.train to False")
+    
+    support_imgs = support_imgs_or_paths
+    support_masks = support_masks_or_paths
+    query_imgs = query_imgs_or_paths
+    transformers = (dataloader.transform_image, dataloader.transform_mask)
+    if type(support_imgs_or_paths) is list:
+        support_imgs = list_to_tensor(support_imgs_or_paths, transformers[0])
+        support_imgs = numpy_to_tensor(support_imgs)
+
+    if type(support_masks_or_paths) is list:
+        support_masks = list_to_tensor(support_masks_or_paths, transformers[1])
+        support_masks = numpy_to_tensor(support_masks)
+    
+    if type(query_imgs_or_paths) is list:
+        query_imgs = list_to_tensor(query_imgs_or_paths, transformers[0])
+        query_imgs = numpy_to_tensor(query_imgs)
+      
+    data_dict = edict({'tr_imgs': support_imgs,
+                        'tr_masks': support_masks,
+                        'val_imgs': query_imgs,
+                        'val_masks': None})
+    
+    leo, _ = load_model_and_params(dataset, data_type="meta_val")
+    seg_weight_grad, features, we, wd = \
+                leo.leo_inner_loop(data_dict.tr_imgs, data_dict.tr_masks)
+    _, _, _, _, _, prediction = \
+            leo.finetuning_inner_loop(data_dict, features, seg_weight_grad,
+                                      transformers, mode="meta_val", we=we, wd=wd)
+    return prediction, leo, transformers
 
 def main():
     if config.train:
-        train_model(config, dataset)
-    else:
-        def evaluate_model():
-            dataloader = Datagenerator(dataset, data_type="meta_train")
-            img_transformer = dataloader.transform_image
-            mask_transformer = dataloader.transform_mask
-            transformers = (img_transformer, mask_transformer)
-            model_and_params = load_model_and_params()
-            return predict_model(dataset, model_and_params,
-                                 transformers)
-
-        evaluate_model()
-
+        train_model(config, dataset, fold)
 
 if __name__ == "__main__":
     main()

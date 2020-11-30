@@ -28,14 +28,14 @@ def load_config(config_path: str = "config.json"):
 
 def update_config(data):
     """ Updates config file """
-    config = load_config()
+    config = dict(load_config())
     data_key = list(data.keys())[0]
     if data_key in config:
         config[data_key] = data[data_key]
     else:
         for k, v in config.items():
-            if type(v) not in [int, bool]:
-                if data_key in v:
+            if type(v) is dict:
+                if data_key in v.keys():
                     v[data_key] = data[data_key]
 
     config_path = os.path.join(project_root, "config.json")
@@ -158,8 +158,8 @@ def load_yaml(data_path):
 
 def list_to_tensor(_list, image_transformer):
     """Converts list of paths to pytorch tensor"""
-    if type(_list[0]) == list:
-        return [image_transformer(Image.open(i)) for i in _list]
+    if type(_list) is list:
+        return np.array([image_transformer(Image.open(i)) for i in _list])
     else:
         return np.expand_dims(image_transformer(Image.open(_list)), 0)
 
@@ -206,24 +206,13 @@ def check_experiment(config):
     """
     experiment = config.experiment
     existing_models = os.listdir(model_root)
-    checkpoint_paths = os.path.join(model_root,
-                                    f"experiment_{experiment.number}")
-    existing_checkpoints = os.listdir(checkpoint_paths)
-    existing_checkpoints = list(set(existing_checkpoints) - set(['train_log.txt', 'val_log.txt']))
+    checkpoints = os.listdir(model_dir)
+    existing_checkpoints = list(set(checkpoints) - set(['train_log.txt', 'val_log.txt']))
+
     if f"experiment_{experiment.number}" in existing_models and \
-            f"checkpoint_{experiment.episode}.pt" in existing_checkpoints:
-        return True
-    elif f"experiment_{experiment.number}" in existing_models and \
-            experiment.episode == -1:
-        return True
-    elif f"experiment_{experiment.number}" in existing_models and \
             existing_checkpoints:
         return True
-    elif f"experiment_{experiment.number}" in existing_models and \
-            not existing_checkpoints:
-        return False
     else:
-        create_log(config)
         return False
 
 

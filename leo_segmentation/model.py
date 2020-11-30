@@ -9,7 +9,7 @@ from torchvision import models
 from torch.nn import functional as F
 
 from leo_segmentation.utils import display_data_shape, get_named_dict, calc_iou_per_class, \
-    log_data, load_config, list_to_tensor, numpy_to_tensor, tensor_to_numpy
+    log_data, load_config, list_to_tensor, numpy_to_tensor, tensor_to_numpy, update_config
 from leo_segmentation.data import PascalDatagenerator, GeneralDatagenerator, TrainingStats
 
 config = load_config()
@@ -357,24 +357,35 @@ class LEO(nn.Module):
                                               create_graph=False, allow_unused=True)
             seg_weight_grad, decoder_grads = grad_output[0], grad_output[1:]
             mean_iou = calc_iou_per_class(prediction, data_dict.val_masks)
-            return val_loss, seg_weight_grad, decoder_grads, mean_iou, weight
+            return val_loss, seg_weight_grad, decoder_grads, mean_iou, weight, prediction
         else:
             with torch.no_grad():
                 mean_ious = []
                 val_losses = []
                 val_img_paths = data_dict.val_imgs
                 val_mask_paths = data_dict.val_masks
-                for _img_path, _mask_path in zip(val_img_paths, val_mask_paths):
-                    input_img = numpy_to_tensor(list_to_tensor(_img_path, img_transformer))
-                    input_mask = numpy_to_tensor(list_to_tensor(_mask_path, mask_transformer))
-                    _, _, prediction = self.forward(input_img, weight=weight, we=we, wd=wd)
-                    val_loss = self.loss_fn(prediction, input_mask.long()).item()
-                    mean_iou = calc_iou_per_class(prediction, input_mask)
-                    mean_ious.append(mean_iou)
-                    val_losses.append(val_loss)
-                mean_iou = np.mean(mean_ious)
-                val_loss = np.mean(val_losses)
-            return val_loss, None, None, mean_iou, weight
+                
+                if config.train:
+                    for _img_path, _mask_path in zip(val_img_paths, val_mask_paths):
+                        input_img = numpy_to_tensor(list_to_tensor(_img_path, img_transformer))
+                        input_mask = numpy_to_tensor(list_to_tensor(_mask_path, mask_transformer))
+                        _, _, prediction = self.forward(input_img, weight=weight, we=we, wd=wd)
+                        val_loss = self.loss_fn(prediction, input_mask.long()).item()
+                        mean_iou = calc_iou_per_class(prediction, input_mask)
+                        mean_ious.append(mean_iou)
+                        val_losses.append(val_loss)
+                    mean_iou = np.mean(mean_ious)
+                    val_loss = np.mean(val_losses)
+                    return val_loss, None, None, mean_iou, weight, prediction
+                else:
+                    prediction = []
+                    for i in range(len(data_dict.val_imgs)):
+                        input_img = torch.unsqueeze(data_dict.val_imgs[i], 0)
+                        _, _, pred = self.forward(data_dict.val_imgs, weight=weight, we=we, wd=wd)
+                        prediction.append(pred)
+                    prediction  = torch.stack(prediction)
+                    return prediction
+
 
 
 def compute_loss(leo, metadata, train_stats, transformers, mode="meta_train"):
@@ -409,7 +420,7 @@ def compute_loss(leo, metadata, train_stats, transformers, mode="meta_train"):
     for batch in range(num_tasks):
         data_dict = get_named_dict(metadata, batch)
         seg_weight_grad, features, we, wd = leo.leo_inner_loop(data_dict.tr_imgs, data_dict.tr_masks)
-        val_loss, seg_weight_grad, decoder_grads, mean_iou, _ = \
+        val_loss, seg_weight_grad, decoder_grads, mean_iou, _, _ = \
             leo.finetuning_inner_loop(data_dict, features, seg_weight_grad,
                                       transformers, mode, we=we, wd=wd)
         if mode == "meta_train":
@@ -489,36 +500,9 @@ def save_model(model, config, train_stats):
     checkpoint_path = os.path.join(model_dir, f"checkpoint_{train_stats.episode}.pt")
     if not os.path.exists(checkpoint_path):
         torch.save(data_to_save, checkpoint_path)
-    """""
     else:
-        trials = 0
-        while trials < 3:
-            if experiment.prompt_deletion:
-                print(f"Are you sure you want to delete checkpoint: {stats.episode}")
-                print(f"Type Yes or y to confirm deletion else No or n")
-                user_input = input()
-            else:
-                user_input = "Yes"
-            positive_options = ["Yes", "y", "yes"]
-            negative_options = ["No", "n", "no"]
-            if user_input in positive_options:
-                # delete checkpoint
-                os.remove(checkpoint_path)
-                torch.save(data_to_save, checkpoint_path)
-                log_filename = os.path.join(model_dir, "model_log.txt")
-                msg = msg = f"\n*********** checkpoint {stats.episode} was deleted **************"
-                log_data(msg, log_filename)
-                break
-
-            elif user_input in negative_options:
-                raise ValueError("Supply the correct episode number to start experiment")
-            else:
-                trials += 1
-                print("Wrong Value Supplied")
-                print(f"You have {3 - trials} left")
-                if trials == 3:
-                    raise ValueError("Supply the correct answer to the question")
-    """""
+        os.remove(checkpoint_path)
+        torch.save(data_to_save, checkpoint_path)
 
 
 def load_model(device, data_dict):
@@ -528,10 +512,8 @@ def load_model(device, data_dict):
         config - global config
         **************************************************
         Note: The episode key in the experiment dict
-        implies the checkpoint that should be loaded
-        when the model resumes training. If episode is
-        -1, then the latest model is loaded else it loads
-        the checkpoint at the supplied episode
+        implies the checkpoint that should be loaded for 
+        inference purposes
         *************************************************
     Returns:
         leo :loaded model that was saved
@@ -544,20 +526,17 @@ def load_model(device, data_dict):
                              .format(experiment.number))
     checkpoints = os.listdir(model_dir)
     checkpoints = [i for i in checkpoints if os.path.splitext(i)[-1] == ".pt"]
-    max_cp = max([int(cp.split(".")[0].split("_")[1]) for cp in checkpoints])
-    checkpoint_path = os.path.join(model_dir, f"checkpoint_{max_cp}.pt")
-
-    """""
-    
-    # if experiment.episode == -1, load latest checkpoint
-    episode = max_cp if experiment.episode == -1 else experiment.episode
-    checkpoint_path = os.path.join(model_dir, f"checkpoint_{episode}.pth.tar")
-    
-
-    log_filename = os.path.join(model_dir, "model_log.txt")
-    msg = f"\n*********** checkpoint {episode} was loaded **************"
-    log_data(msg, log_filename)
-    """""
+    available_checkpoints = [int(cp.split(".")[0].split("_")[1]) for cp in checkpoints]
+    selected_checkpoint = max(available_checkpoints)
+    if not config.train:
+        if experiment.episode not in available_checkpoints:
+            print("Selected episode not availabe for loading")
+            selected_checkpoint = int(input(f"Select one of the following: {available_checkpoints}"))
+            if selected_checkpoint not in available_checkpoints:
+                raise ValueError("Stop being silly and select the right value")
+         
+        print(f"Episode {selected_checkpoint} selected for Evaluation")
+    checkpoint_path = os.path.join(model_dir, f"checkpoint_{selected_checkpoint}.pt")
     checkpoint = torch.load(checkpoint_path)
     leo = LEO().to(device)
     skip_features, latents = leo.forward_encoder(data_dict.tr_imgs, mode="meta_train")
@@ -572,6 +551,8 @@ def load_model(device, data_dict):
     train_stats = checkpoint['train_stats']
     leo.seg_weight = leo.seg_network.weight.detach().to(device)
     leo.seg_weight.requires_grad = True
+    if config.train:
+        train_stats.update_after_restart()
 
     return leo, train_stats
 
