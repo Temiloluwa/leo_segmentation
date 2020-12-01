@@ -14,6 +14,8 @@ pandas==1.0.5
 Pillow==7.2.0
 pylint==2.5.3
 pyparsing==2.4.7
+pytest==6.1.1
+pytest-allclose==1.0.0
 python-dateutil==2.8.1
 pytz==2020.1
 six==1.15.0
