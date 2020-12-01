@@ -36,10 +36,11 @@ def load_model_and_params(dataset, data_type):
             else GeneralDatagenerator
 
     dataloader = Datagenerator(dataset, data_type)
+    transformers = (dataloader.transform_image, dataloader.transform_mask)
     metadata = dataloader.get_batch_data()
     data_dict = get_named_dict(metadata, 0)
     leo, train_stats = load_model(device, data_dict)
-    return leo, train_stats
+    return leo, train_stats, transformers
 
 def train_model(config, dataset, fold=None):
     """Trains Model
@@ -68,7 +69,8 @@ def train_model(config, dataset, fold=None):
 
     if check_experiment(config):
         # Load saved model and parameters
-        leo, train_stats = load_model_and_params(dataset, data_type="meta_train")
+        leo, train_stats, transformers = \
+                load_model_and_params(dataset, data_type="meta_train")
         episodes_completed = train_stats.episode
     else:
         # Train a fresh model
@@ -112,20 +114,21 @@ def train_model(config, dataset, fold=None):
         print_to_string_io(log_msg, False, train_logger)
         episode_times.append(episode_time)
 
-    model_and_params = leo, train_stats
-    leo = predict_model(dataset, model_and_params, transformers)
+
+    leo = predict_model(dataset, leo, train_stats, transformers)
     log_msg = f"Total Model Training Time {np.sum(episode_times):0.03f} minutes"
     print_to_string_io(log_msg, False, train_logger)
     train_logger.debug("End time")
     return leo
 
 
-def predict_model(dataset, model_and_params, transformers):
+def predict_model(dataset, leo, train_stats, transformers):
     """Create Predictions for Metatest
 
     Args:
         dataset (str): Name of training dataset
-        model_and_params (tuple): tuple of leo model and train_stats
+        leo (object): leo model 
+        train_stats (object): train_stats object
         transformers (tuple): tuple of image and mask data transformers
 
     Returns:
@@ -133,9 +136,6 @@ def predict_model(dataset, model_and_params, transformers):
     """
     Datagenerator = PascalDatagenerator if dataset == "pascal_5i" \
             else GeneralDatagenerator
-
-    config = load_config()
-    leo, _, train_stats = model_and_params
     data_type = "meta_test"
     if dataset == "pascal_5i":
         data_type = "meta_val"
@@ -203,7 +203,7 @@ def evaluate_model(dataset,
                         'val_imgs': query_imgs,
                         'val_masks': None})
     
-    leo, _ = load_model_and_params(dataset, data_type="meta_val")
+    leo, _, _ = load_model_and_params(dataset, data_type="meta_val")
     seg_weight_grad, features, we, wd = leo.leo_inner_loop(data_dict.tr_imgs, data_dict.tr_masks)
     prediction = leo.finetuning_inner_loop(data_dict, features, seg_weight_grad,
                                       transformers, mode="meta_val", we=we, wd=wd)
