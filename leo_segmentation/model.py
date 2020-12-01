@@ -530,14 +530,16 @@ def load_model(device, data_dict):
     checkpoints = [i for i in checkpoints if os.path.splitext(i)[-1] == ".pt"]
     available_checkpoints = [int(cp.split(".")[0].split("_")[1]) for cp in checkpoints]
     selected_checkpoint = max(available_checkpoints)
-    if not config.train:
+    if experiment.episode > 1:
         if experiment.episode not in available_checkpoints:
             print("Selected episode not availabe for loading")
             selected_checkpoint = int(input(f"Select one of the following: {available_checkpoints}"))
             if selected_checkpoint not in available_checkpoints:
                 raise ValueError("Stop being silly and select the right value")
-         
-        print(f"Episode {selected_checkpoint} selected for Evaluation")
+        else:
+            selected_checkpoint = experiment.episode
+
+    print(f"Episode {selected_checkpoint} selected")
     checkpoint_path = os.path.join(model_dir, f"checkpoint_{selected_checkpoint}.pt")
     checkpoint = torch.load(checkpoint_path)
     leo = LEO().to(device)
