@@ -6,4 +6,3 @@ Meta-Learning for the Few-shot Classification problem to Segmentation.
 
 ## Team members
 The project is undertaken by Temiloluwa Adeoti, Gopika Sudhakaran, Istiaque Mannafee, Jennifer Deborah
-
