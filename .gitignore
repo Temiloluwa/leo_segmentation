@@ -1,2 +1,4 @@
 leo_segmentation/__pycache__/
 *.pyc
+.ipynb_checkpoints/
+leo_segmentation/data/models/

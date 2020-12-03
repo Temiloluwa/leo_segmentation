@@ -1,0 +1,27 @@
+astroid==2.4.2
+colorama==0.4.3
+cycler==0.10.0
+easydict==1.9
+future==0.18.2
+isort==4.3.21
+kiwisolver==1.2.0
+lazy-object-proxy==1.4.3
+-e git+https://github.com/Temiloluwa/leo-segmentation-srp-project.git@c5e40ec2e4a8f4d55d4f3918e31490c9d48e8209#egg=leo_segmentation
+matplotlib==3.2.2
+mccabe==0.6.1
+numpy==1.19.0
+pandas==1.0.5
+Pillow==7.2.0
+pylint==2.5.3
+pyparsing==2.4.7
+pytest==6.1.1
+pytest-allclose==1.0.0
+python-dateutil==2.8.1
+pytz==2020.1
+six==1.15.0
+toml==0.10.1
+torch==1.5.1+cu101
+torchvision==0.6.1+cu101
+tqdm==4.47.0
+typed-ast==1.4.1
+wrapt==1.12.1

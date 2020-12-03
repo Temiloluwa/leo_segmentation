@@ -1,4 +1,3 @@
-from .utils import load_model
-from .run import main
+from leo_segmentation import model, data, utils
 
-__all__ = ["model", "data", "utils", "config"]
+__all__ = ["model", "data", "utils"]
