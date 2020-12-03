@@ -156,7 +156,7 @@ def load_yaml(data_path):
         return yaml.safe_load(f)
 
 
-def list_to_tensor(_list, image_transformer):
+def list_to_numpy(_list, image_transformer):
     """Converts list of paths to pytorch tensor"""
     if type(_list) is list:
         return np.array([image_transformer(Image.open(i)) for i in _list])

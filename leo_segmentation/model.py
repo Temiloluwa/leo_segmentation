@@ -9,7 +9,7 @@ from torchvision import models
 from torch.nn import functional as F
 
 from leo_segmentation.utils import display_data_shape, get_named_dict, calc_iou_per_class, \
-    log_data, load_config, list_to_tensor, numpy_to_tensor, tensor_to_numpy, update_config
+    log_data, load_config, list_to_numpy, numpy_to_tensor, tensor_to_numpy, update_config
 from leo_segmentation.data import PascalDatagenerator, GeneralDatagenerator, TrainingStats
 
 config = load_config()
@@ -367,8 +367,8 @@ class LEO(nn.Module):
                 
                 if config.train:
                     for _img_path, _mask_path in zip(val_img_paths, val_mask_paths):
-                        input_img = numpy_to_tensor(list_to_tensor(_img_path, img_transformer))
-                        input_mask = numpy_to_tensor(list_to_tensor(_mask_path, mask_transformer))
+                        input_img = numpy_to_tensor(list_to_numpy(_img_path, img_transformer))
+                        input_mask = numpy_to_tensor(list_to_numpy(_mask_path, mask_transformer))
                         _, _, prediction = self.forward(input_img, weight=weight, we=we, wd=wd)
                         val_loss = self.loss_fn(prediction, input_mask.long()).item()
                         mean_iou = calc_iou_per_class(prediction, input_mask)

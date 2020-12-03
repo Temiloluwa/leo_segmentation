@@ -23,7 +23,7 @@
                       "number": 50},
     "hyperparameters": {   "base_num_covs": 8,
                            "dropout_rate": 0.2,
-                           "episodes": 1,
+                           "episodes": 100,
                            "finetuning_lr": 0.001,
                            "inner_loop_lr": 0.001,
                            "kl_weight": 0.5,

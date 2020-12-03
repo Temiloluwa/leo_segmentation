@@ -11,7 +11,7 @@ from leo_segmentation.model import LEO, load_model, save_model, compute_loss
 from leo_segmentation.utils import load_config, check_experiment, \
     get_named_dict, log_data, load_yaml, train_logger, val_logger, \
     print_to_string_io, save_pickled_data, model_dir, update_config,\
-    list_to_tensor, numpy_to_tensor
+    list_to_numpy, numpy_to_tensor
 
 config = load_config()
 
@@ -187,15 +187,15 @@ def evaluate_model(dataset,
     query_imgs = query_imgs_or_paths
     transformers = (dataloader.transform_image, dataloader.transform_mask)
     if type(support_imgs_or_paths) is list:
-        support_imgs = list_to_tensor(support_imgs_or_paths, transformers[0])
+        support_imgs = list_to_numpy(support_imgs_or_paths, transformers[0])
         support_imgs = numpy_to_tensor(support_imgs)
 
     if type(support_masks_or_paths) is list:
-        support_masks = list_to_tensor(support_masks_or_paths, transformers[1])
+        support_masks = list_to_numpy(support_masks_or_paths, transformers[1])
         support_masks = numpy_to_tensor(support_masks)
     
     if type(query_imgs_or_paths) is list:
-        query_imgs = list_to_tensor(query_imgs_or_paths, transformers[0])
+        query_imgs = list_to_numpy(query_imgs_or_paths, transformers[0])
         query_imgs = numpy_to_tensor(query_imgs)
       
     data_dict = edict({'tr_imgs': support_imgs,
