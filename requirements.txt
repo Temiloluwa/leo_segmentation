@@ -9,7 +9,7 @@ lazy-object-proxy==1.4.3
 -e git+https://github.com/Temiloluwa/leo-segmentation-srp-project.git@c5e40ec2e4a8f4d55d4f3918e31490c9d48e8209#egg=leo_segmentation
 matplotlib==3.2.2
 mccabe==0.6.1
-numpy==1.19.0
+numpy==1.22.0
 pandas==1.0.5
 Pillow==7.2.0
 pylint==2.5.3
